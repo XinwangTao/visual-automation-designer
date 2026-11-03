@@ -45,7 +45,7 @@ describe('BlockNode connection hints', () => {
       validationMessage: '条件块结构错误',
     });
 
-    expect(screen.getByLabelText('节点存在错误')).toHaveTextContent('错');
+    expect(screen.getByLabelText('节点存在错误')).toHaveTextContent('错误');
     expect(screen.getByText('错误：')).toBeInTheDocument();
     expect(screen.getByText('条件块结构错误')).toBeInTheDocument();
   });
@@ -59,7 +59,7 @@ describe('BlockNode connection hints', () => {
       validationMessage: '等待时间为 0',
     });
 
-    expect(screen.getByLabelText('节点存在警告')).toHaveTextContent('警');
+    expect(screen.getByLabelText('节点存在警告')).toHaveTextContent('警告');
     expect(screen.getByText('警告：')).toBeInTheDocument();
     expect(screen.getByText('等待时间为 0')).toBeInTheDocument();
   });

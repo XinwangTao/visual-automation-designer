@@ -1097,3 +1097,86 @@ cursor: pointer;
   box-shadow: var(--shadow-lg);
   background: color-mix(in srgb, var(--color-bg-elevated) 96%, transparent);
 }
+
+/* ==========================================================================
+   Phase 8b — Professional desktop polish
+   ========================================================================== */
+
+.app__status {
+  gap: 10px;
+}
+
+.app__status-item {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.app__status-item--clean,
+.app__status-item--dirty,
+.app__status-item--stats,
+.app__status-item--flow,
+.app__status-item--loading,
+.app__status-item--error,
+.app__status-item--placement {
+  padding: 7px 11px;
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.theme-dark .app__status-item--clean,
+.theme-dark .app__status-item--dirty,
+.theme-dark .app__status-item--stats,
+.theme-dark .app__status-item--flow,
+.theme-dark .app__status-item--loading,
+.theme-dark .app__status-item--error,
+.theme-dark .app__status-item--placement {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.vscode-panel-tabs {
+  gap: 6px;
+}
+
+.vscode-panel-tab {
+  padding: 0 12px;
+  min-height: 30px;
+}
+
+.vscode-panel-tab:hover {
+  background: color-mix(in srgb, var(--color-primary-soft) 34%, transparent);
+}
+
+.vscode-panel-tab--active {
+  background: color-mix(in srgb, var(--color-bg-elevated) 98%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.theme-dark .vscode-panel-tab--active {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 12px 22px rgba(0, 0, 0, 0.2);
+}
+
+.vscode-panel-action-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+}
+
+.vscode-panel-action-btn:hover {
+  border-color: color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.app__validation-item {
+  padding: 12px 14px;
+  gap: 6px;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.app__validation-item strong {
+  letter-spacing: 0.01em;
+}
+
+.app__validation-item-meta {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}

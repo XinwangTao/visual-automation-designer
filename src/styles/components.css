@@ -8619,3 +8619,199 @@ line-height: 1.5;
 .execution-log__content {
   background: color-mix(in srgb, var(--color-bg-elevated) 98%, transparent);
 }
+
+/* --------------------------------------------------------------------------
+   Phase 8b — Professional desktop polish
+   -------------------------------------------------------------------------- */
+
+.toolbox__header {
+  padding: 18px 16px 14px;
+}
+
+.toolbox__header h3 {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.toolbox__subtitle {
+  margin-top: 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
+.toolbox__section-header {
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+
+.toolbox__section-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary);
+}
+
+.action-blocks__item,
+.control-blocks__item {
+  align-items: flex-start;
+  padding: 13px 14px;
+}
+
+.action-blocks__icon,
+.control-blocks__icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  font-size: 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.theme-dark .action-blocks__icon,
+.theme-dark .control-blocks__icon {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.action-blocks__label,
+.control-blocks__label {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.action-blocks__description,
+.control-blocks__description {
+  line-height: 1.45;
+}
+
+.block-config__header {
+  padding: 18px 16px 14px;
+}
+
+.block-config__header h3 {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.block-config__type {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.block-config__content {
+  padding: 18px 16px 20px;
+}
+
+.block-config__section {
+  gap: 18px;
+}
+
+.block-config__label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary);
+}
+
+.block-config__hint {
+  line-height: 1.45;
+}
+
+.block-config__info {
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-bg-secondary) 92%, transparent);
+}
+
+.execution-log__header {
+  padding: 16px 52px 12px 16px;
+}
+
+.execution-log__header h4 {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.execution-log__entry {
+  margin: 0 12px 10px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--color-bg-elevated) 98%, transparent);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.04);
+}
+
+.execution-log__time {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.flow-toolbar__group--execute {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  margin-left: 6px;
+  border-left: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.block-node__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+}
+
+.block-node__label {
+  line-height: 1.3;
+}
+
+.block-node__type-badge {
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.block-node__content {
+  padding: 10px 12px 12px;
+}
+
+.block-node__config {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.45;
+}
+
+.block-config__field {
+  gap: 6px;
+}
+
+.block-config__field-group {
+  gap: 12px;
+}
+
+.block-config__actions {
+  padding: 14px 16px 16px;
+  background: color-mix(in srgb, var(--color-bg-secondary) 94%, transparent);
+}
+
+.block-config__btn {
+  min-height: 40px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.block-config__btn:hover:not(:disabled) {
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.05);
+}
