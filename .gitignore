@@ -46,3 +46,9 @@ coverage/
 # Temporary files
 *.tmp
 *.temp
+
+# Local agent workspaces / tooling output
+.claude/
+.understand-anything/
+.sisyphus/
+auto-iterate/logs/

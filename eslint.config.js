@@ -6,7 +6,19 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', 'src-tauri/gen/**', 'src-tauri/target/**', 'scripts/**'],
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'src-tauri/gen/**',
+      'src-tauri/target/**',
+      'scripts/**',
+      // 本地代理工作树与工具产物：不是本仓库源码，扫进来会让 `npm run lint` 直接爆几百条
+      '.claude/**',
+      '.understand-anything/**',
+      '.sisyphus/**',
+      'build*/**',
+      'auto-iterate/logs/**',
+    ],
   },
   js.configs.recommended,
   {
