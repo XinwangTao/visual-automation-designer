@@ -593,7 +593,7 @@ export function AppShell() {
     if (template) {
       try {
         await applyFlowTemplate(template, createdFlow.id, addNode, addConnection);
-        showToast('info', `已载入示例：${template.name}`);
+        showToast('info', `已载入示例「${template.name}」：把节点里的图片换成你的目标图即可运行`);
       } catch (err) {
         // 模板只是便利功能：失败时保留已创建的空白流程，不要让用户以为流程没建出来。
         console.error('Failed to apply flow template:', err);

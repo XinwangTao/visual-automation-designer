@@ -534,10 +534,16 @@
 
 .app__sidebar--left {
   width: 248px;
+  /* 画布内容会把两侧栏挤压：定宽 + 不参与收缩，否则工具箱卡片被压到几十像素，
+     中文标签会逐字竖排。 */
+  flex: 0 0 248px;
+  min-width: 248px;
 }
 
 .app__sidebar--right {
   width: 320px;
+  flex: 0 0 320px;
+  min-width: 320px;
 }
 
 .app__main {
