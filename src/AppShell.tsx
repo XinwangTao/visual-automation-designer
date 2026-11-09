@@ -17,6 +17,7 @@ import { Toolbox } from './components/BlockToolbox';
 import { BlockConfig } from './components/ConfigPanel';
 import { ConfirmDialog, useToast } from './components/common';
 import { useFlow, useExecution, useKeyboardShortcuts, useTheme, buildCanonicalFlow } from './hooks';
+import { installRuntimeIssueBridge } from './runtimeIssueBridge';
 import type { InternalExecutionEvent } from './hooks/useExecution';
 import type { Flow as TauriFlow, ValidationErrorResponse } from './tauri/flow';
 import { validateFlow } from './tauri/flow';
@@ -357,6 +358,9 @@ export function AppShell() {
     setLogCollapsed(false);
     logResizeStateRef.current = { startY: event.clientY, startHeight: logHeight };
   }, [logHeight]);
+
+  // 原生 error/unhandledrejection 的桥按引用计数安装：AppShell 卸载后自动摘掉监听。
+  useEffect(() => installRuntimeIssueBridge(), []);
 
   useEffect(() => {
     const handleRuntimeError = (event: Event) => {
