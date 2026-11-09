@@ -321,10 +321,10 @@ export function BlockConfig({
           disabled={!isValid}
           data-testid="btn-save-config"
         >
-          ✓ 保存
+          保存
         </button>
         <button className={styles.blockConfigBtn} onClick={handleCancel} data-testid="btn-cancel-config">
-          ✕ 取消
+          取消
         </button>
       </div>
 

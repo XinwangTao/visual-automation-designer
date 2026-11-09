@@ -148,6 +148,7 @@ const VALUE_FLAGS: &[&str] = &[
     "timeout-ms",
     "interval-ms",
     "ms",
+    "expect-value",
 ];
 
 const BOOLEAN_FLAGS: &[&str] = &[
@@ -1502,19 +1503,32 @@ fn cmd_wait(args: &Args) -> Result<i32, CliError> {
         {
             let window = args.require("window")?;
             let selector = uia_selector_from_args(args);
+            let expect_value = args.value("expect-value");
+            let mut last_value: Option<String> = None;
             loop {
                 match crate::platform::uia::find(window, &selector) {
                     Ok(Some(node)) => {
-                        println!(
-                            "{}",
-                            pretty(&json!({
-                                "ok": true,
-                                "found": true,
-                                "waitedMs": started.elapsed().as_millis() as u64,
-                                "node": node,
-                            }))
-                        );
-                        return Ok(EXIT_OK);
+                        last_value = node.value.clone();
+                        let value_matches = expect_value
+                            .map(|expected| {
+                                node.value
+                                    .as_deref()
+                                    .map(|actual| actual.contains(expected))
+                                    .unwrap_or(false)
+                            })
+                            .unwrap_or(true);
+                        if value_matches {
+                            println!(
+                                "{}",
+                                pretty(&json!({
+                                    "ok": true,
+                                    "found": true,
+                                    "waitedMs": started.elapsed().as_millis() as u64,
+                                    "node": node,
+                                }))
+                            );
+                            return Ok(EXIT_OK);
+                        }
                     }
                     Ok(None) => {}
                     Err(error) => {
@@ -1528,7 +1542,8 @@ fn cmd_wait(args: &Args) -> Result<i32, CliError> {
                             "ok": false,
                             "found": false,
                             "waitedMs": started.elapsed().as_millis() as u64,
-                            "error": format!("UIA control not found within {timeout_ms}ms"),
+                            "error": format!("UIA control/value not found within {timeout_ms}ms"),
+                            "lastValue": last_value,
                         }))
                     );
                     return Ok(EXIT_TARGET);

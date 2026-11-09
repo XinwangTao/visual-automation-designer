@@ -15,6 +15,7 @@ use windows::Win32::System::Com::{
 };
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTreeWalker,
+    IUIAutomationValuePattern, UIA_ValuePatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetAncestor, GetWindowTextLengthW, GetWindowTextW, GetWindowRect, IsIconic,
@@ -26,6 +27,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 #[serde(rename_all = "camelCase")]
 pub struct UiaNode {
     pub name: String,
+    /// Current ValuePattern text (edits, combo boxes); `None` for other controls.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
     pub automation_id: String,
     pub class_name: String,
     pub control_type: i32,
@@ -296,6 +300,13 @@ fn read_node(el: &IUIAutomationElement, depth: usize) -> UiaNode {
         Ok(r) => (r.left, r.top, r.right - r.left, r.bottom - r.top),
         Err(_) => (0, 0, 0, 0),
     };
+    let value = unsafe {
+        el.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+            .ok()
+            .and_then(|pattern| pattern.CurrentValue().ok())
+            .map(|text| text.to_string())
+            .filter(|text| !text.is_empty())
+    };
     let enabled = unsafe { el.CurrentIsEnabled() }
         .map(|b| b.as_bool())
         .unwrap_or(true);
@@ -304,6 +315,7 @@ fn read_node(el: &IUIAutomationElement, depth: usize) -> UiaNode {
         .unwrap_or(false);
     UiaNode {
         name,
+        value,
         automation_id,
         class_name,
         control_type,
@@ -524,6 +536,7 @@ mod tests {
         };
         let mut node = UiaNode {
             name: "确定按钮".into(),
+            value: None,
             automation_id: String::new(),
             class_name: String::new(),
             control_type: 50000,
@@ -550,6 +563,7 @@ mod tests {
         };
         let node = UiaNode {
             name: String::new(),
+            value: None,
             automation_id: "SUBMITBTN".into(),
             class_name: String::new(),
             control_type: 50000,

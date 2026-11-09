@@ -282,7 +282,8 @@ fn tool_definitions() -> Vec<Value> {
                     "index": {"type": "integer"},
                     "timeoutMs": {"type": "integer"},
                     "intervalMs": {"type": "integer"},
-                    "ms": {"type": "integer"}
+                    "ms": {"type": "integer"},
+                    "expectValue": {"type": "string", "description": "For UIA: wait until the control value contains this text"}
                 }
             }
         }),
@@ -617,6 +618,9 @@ fn build_args(tool: &str, args: &Value) -> Result<Vec<String>, String> {
             }
             if let Some(ms) = get_int(args, "ms") {
                 out.extend(["--ms".into(), ms.to_string()]);
+            }
+            if let Some(value) = get_str(args, "expectValue") {
+                out.extend(["--expect-value".into(), value]);
             }
         }
         "vad_drag" => {

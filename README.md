@@ -72,7 +72,7 @@ vadctl key --keys "ctrl+s" --window "记事本"
 vadctl scroll --amount -3 --coords 1200,700
 vadctl drag --from 100,100 --to 400,300 --duration-ms 500
 vadctl wait --window "记事本" --timeout-ms 5000
-vadctl wait --uia --window "记事本" --automation-id 15 --timeout-ms 5000
+vadctl wait --uia --window "记事本" --automation-id 15 --expect-value "已保存" --timeout-ms 5000
 ```
 
 `docs/AI_AGENT_PLAYBOOK.md` 给出了 Claude Code 用 MCP 完成任意 UI 任务的观察→执行→验证循环、选择器约定与安全规则。

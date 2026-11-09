@@ -14,6 +14,7 @@
 - **液态玻璃背景（重做）**：低饱和漂移光场 + 细颗粒；工具栏/侧栏/画布/日志/配置/弹窗全部浮动磨砂玻璃，带渐变边框、内高光与柔和阴影；积木图标统一为单色线性 SVG，移除可见 emoji；支持 `prefers-reduced-motion`。
 - **液态玻璃背景**：缓慢漂移的彩色光场 + 磨砂工具栏/侧栏/日志/弹窗（backdrop-filter），并提供 `prefers-reduced-motion` 降级。
 - **GUI 试跑**：工具栏新增「试跑」按钮与 `dry_run_flow` 命令，按真实控制流解析目标但不点击、不输入、不提窗、不等待，返回每步证据。
+- **UIA 值读取**：`UIA` 节点新增 `value`（ValuePattern），`vad_wait` 支持 `--expect-value` / MCP `expectValue`，可等待编辑框/下拉框出现指定文本。
 - **Agent 闭环原语**：`vadctl windows`（窗口+矩形+pid）、`screenshot`（全屏/区域/窗口，可缩放）、`type`、`key`、`scroll`、`drag`、`wait`（窗口/控件/纯等待）；点击支持左右键/双击/次数。
 - **MCP 14 工具**：新增 `vad_windows` / `vad_screenshot` / `vad_type` / `vad_key` / `vad_scroll` / `vad_drag` / `vad_wait`；`vad_screenshot` 直接返回 image content，Claude 可在对话里直接看图。
 - **`docs/AI_AGENT_PLAYBOOK.md`**：Claude Code 完成任意 UI 自动化的观察→执行→验证循环、选择器语义与安全规则。

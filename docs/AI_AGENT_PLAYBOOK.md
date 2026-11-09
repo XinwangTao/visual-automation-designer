@@ -7,7 +7,7 @@
 | 阶段 | 工具 | 用途 |
 |------|------|------|
 | 观察 | `vad_windows` | 可见窗口的标题、pid、屏幕矩形、是否前台/最小化 |
-| 观察 | `vad_uia_find` | 按窗口 + name/automationId/class/controlType/index 枚举控件及矩形 |
+| 观察 | `vad_uia_find` | 枚举控件及矩形；编辑框/下拉框同时返回当前 `value` |
 | 观察 | `vad_screenshot` | 截全屏/区域/窗口，返回 PNG 图像 + 文件路径（默认缩到 1280 宽） |
 | 观察 | `vad_find` | 模板匹配当前屏幕，返回分数与命中矩形（可带 ROI） |
 | 执行 | `vad_click_target` | 点坐标 / 模板 / UIA 控件；支持左右键、双击、次数、`force` |
@@ -15,7 +15,7 @@
 | 执行 | `vad_key` | 按键/组合键，如 `enter`、`ctrl+s`、`alt+f4` |
 | 执行 | `vad_scroll` | 滚轮，可先移动到坐标 |
 | 执行 | `vad_drag` | 从一个点拖到另一个点 |
-| 等待 | `vad_wait` | 等窗口/控件出现（带 timeout），或纯 sleep |
+| 等待 | `vad_wait` | 等窗口/控件出现、等控件 `value` 包含指定文本，或纯 sleep |
 | 流程 | `vad_validate` | 校验流程 JSON，返回 blockId 级错误 |
 | 流程 | `vad_run` / `vad_step` | 真跑 / 单步，证据写 `runs/<ts>/report.json` |
 | 辅助 | `vad_doctor` / `vad_list` | 环境自检、流程/图片列表 |
@@ -26,7 +26,7 @@
 2. `vad_screenshot {window}` 看一眼真实界面；或 `vad_uia_find {window}` 拿控件树。
 3. 优先用 UIA 控件（name/automationId/controlType）作为目标；没有 UIA 时用截图/模板/坐标。
 4. 动作：`vad_click_target` / `vad_type` / `vad_key` / `vad_scroll` / `vad_drag`。
-5. 验证：`vad_wait` 等目标出现/状态变化，再截一次图，或 `vad_uia_find` 看控件，或读取应用产生的文件/窗口标题。
+5. 验证：`vad_wait {expectValue}` 等控件值变化，再截一次图，或 `vad_uia_find` 读控件 `value`，或读取应用产生的文件/窗口标题。
 6. 失败时读错误 JSON：目标未找到（退出码 3）、被遮挡（3）、断言失败（4）、运行时（5）。
 
 ## 2. 选择器约定
