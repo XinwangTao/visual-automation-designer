@@ -4,7 +4,48 @@
 
 ---
 
-## [1.0.1] - 2026-07-11
+## [Unreleased]
+
+### Added
+- 新建流程可选起始模板（「等图 → 点击 → 等待」与「带截图断言」两条链路），载入后是可随意改动的普通节点
+- `docs/TUTORIAL.md` 使用教程、`CONTRIBUTING.md`、CI 工作流（lint + test + build）、Bug/功能 Issue 表单、MIT LICENSE
+
+### Fixed
+- 前端运行时异常在非 `main.tsx` 入口挂载时完全静默：异常桥改为引用计数安装，toast 与执行日志不再丢失
+- `logRuntimeIssue` 在后端不可用时不再抛出未处理 rejection（原先会让兜底通道自己触发下一轮异常）
+- ESLint 误扫本地代理工作树（`.claude/`、`.understand-anything/`），`npm run lint` 从 371 条噪音错误恢复为 0
+
+---
+
+## [1.0.5] - 2026-06-09
+
+### Changed
+- CI 动作运行时升级到 Node 24，兼容 GitHub Actions 的新运行时要求
+
+---
+
+## [1.0.4] - 2026-06-09
+
+### Fixed
+- 发布流程改为上传各平台独立产物，修复部分平台安装包缺失
+
+---
+
+## [1.0.3] - 2026-06-09
+
+### Changed
+- 桌面外壳视觉刷新（Apple 风格配色与控件），暗色主题同步调整
+
+---
+
+## [1.0.2] - 2026-06-09
+
+### Added
+- 图片匹配阈值可配置，匹配失败时给出具体准确度提示
+
+---
+
+## [1.0.1] - 2026-06-09
 
 ### Changed
 - 提取 `isInputElement` 到 `src/utils/dom.ts`，消除 `AppShell.tsx` 与 `useKeyboardShortcuts.ts` 中的重复代码
