@@ -78,14 +78,14 @@ impl InputController {
     // Mouse Operations
     // ========================================================================
 
-    /// Move mouse to absolute coordinates
+    /// Move mouse to absolute virtual-screen coordinates.
     ///
     /// # Arguments
-    /// * `x` - X coordinate
-    /// * `y` - Y coordinate
-    pub fn move_to(&mut self, x: u32, y: u32) -> Result<()> {
+    /// * `x` - X coordinate (may be negative on monitors left of the primary)
+    /// * `y` - Y coordinate (may be negative on monitors above the primary)
+    pub fn move_to(&mut self, x: i32, y: i32) -> Result<()> {
         self.enigo
-            .move_mouse(x as i32, y as i32, Coordinate::Abs)
+            .move_mouse(x, y, Coordinate::Abs)
             .map_err(|e| {
                 AppError::ExecutionFailed(format!("Failed to move mouse: {:?}", e))
             })?;
@@ -123,7 +123,7 @@ impl InputController {
     /// * `x` - X coordinate
     /// * `y` - Y coordinate
     /// * `button` - Mouse button to click
-    pub fn click_at(&mut self, x: u32, y: u32, button: MouseButton) -> Result<()> {
+    pub fn click_at(&mut self, x: i32, y: i32, button: MouseButton) -> Result<()> {
         self.move_to(x, y)?;
         thread::sleep(Duration::from_millis(self.click_interval_ms));
         self.click(button)?;
@@ -147,7 +147,7 @@ impl InputController {
     /// * `x` - X coordinate
     /// * `y` - Y coordinate
     /// * `button` - Mouse button to click
-    pub fn double_click_at(&mut self, x: u32, y: u32, button: MouseButton) -> Result<()> {
+    pub fn double_click_at(&mut self, x: i32, y: i32, button: MouseButton) -> Result<()> {
         self.move_to(x, y)?;
         thread::sleep(Duration::from_millis(self.click_interval_ms));
         self.double_click(button)?;

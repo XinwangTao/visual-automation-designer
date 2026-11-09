@@ -5,24 +5,56 @@
 //!
 //! Validates: Requirements 8.4
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::error::{AppError, Result};
 use crate::models::ImageId;
 
+use super::events::{BlockEvidence, HitRect};
 use super::runner::{safe_execute, Executor};
 
 /// Compute the screen-global center coordinates from a capture offset and match result.
+///
+/// Screen coordinates are signed: monitors left of / above the primary monitor
+/// have negative origins. Casting the origin to `u32` (the previous behaviour)
+/// wrapped negative values and made clicks land at `(-1, -1)`.
 fn match_center(
     origin_x: &i32,
     origin_y: &i32,
     result: &crate::matching::MatchResult,
-) -> (u32, u32) {
+) -> (i32, i32) {
     (
-        (*origin_x as u32).saturating_add(result.center_x.unwrap_or(0)),
-        (*origin_y as u32).saturating_add(result.center_y.unwrap_or(0)),
+        origin_x.saturating_add(result.center_x.unwrap_or(0) as i32),
+        origin_y.saturating_add(result.center_y.unwrap_or(0) as i32),
     )
 }
+
+/// Build screen-space evidence for a match result.
+fn evidence_for(
+    origin_x: &i32,
+    origin_y: &i32,
+    result: &crate::matching::MatchResult,
+    target: String,
+) -> BlockEvidence {
+    let (cx, cy) = match_center(origin_x, origin_y, result);
+    let width = result.width.unwrap_or(0);
+    let height = result.height.unwrap_or(0);
+    BlockEvidence {
+        score: result.confidence,
+        hit_rect: if width > 0 && height > 0 {
+            Some(HitRect::new(
+                cx - (width / 2) as i32,
+                cy - (height / 2) as i32,
+                width,
+                height,
+            ))
+        } else {
+            None
+        },
+        target: Some(target),
+    }
+}
+
 
 impl Executor {
     /// Find an image on screen with caching and performance tracking.
@@ -32,15 +64,15 @@ impl Executor {
     /// the highest NCC score seen even when `found` is false, so callers can
     /// give specific feedback like "匹配准确率 15% 低于阈值 70%".
     ///
-    /// This method uses the CachedImageMatcher for improved performance
-    /// on repeated matches. It also logs performance metrics.
+    /// The screen coordinates are signed and already include the monitor
+    /// origin, so negative-origin monitors work on both sides of the primary.
     ///
     /// Validates: Requirements 8.4 - Exception handling for image operations
     pub(super) async fn find_image_on_screen(
-        &self,
+        &mut self,
         image_id: &ImageId,
         threshold: Option<f64>,
-    ) -> Result<(bool, (u32, u32), f64)> {
+    ) -> Result<(bool, (i32, i32), f64)> {
         let start = Instant::now();
 
         // Get image metadata
@@ -69,11 +101,23 @@ impl Executor {
         if let Ok(Ok(capture)) = capture_result {
             let result = {
                 let mut matcher = self.matcher.lock().await;
-                // Apply optional threshold override
+                // Apply an optional threshold for this call only; previously
+                // this mutated the matcher permanently and leaked into later
+                // blocks that passed `None`.
+                let previous = matcher.threshold();
                 if let Some(t) = threshold {
                     matcher.set_threshold(t);
                 }
-                matcher.find_image_cached(&capture.image, &template, image_id)
+                let result = matcher.find_image_bounded(
+                    &capture.image,
+                    &template,
+                    None,
+                    Duration::from_millis(3000),
+                );
+                if threshold.is_some() {
+                    matcher.set_threshold(previous);
+                }
+                result
             };
 
             // Track best confidence even on failure
@@ -88,6 +132,12 @@ impl Executor {
                     duration.as_millis(),
                     image_id
                 );
+                self.last_evidence = Some(evidence_for(
+                    &capture.origin_x,
+                    &capture.origin_y,
+                    &result,
+                    metadata.name.clone(),
+                ));
                 return Ok((true, match_center(&capture.origin_x, &capture.origin_y, &result), best_confidence));
             }
         }
@@ -103,10 +153,20 @@ impl Executor {
                 if let Ok(Ok(capture)) = capture_fallback_result {
                     let result = {
                         let mut matcher = self.matcher.lock().await;
+                        let previous = matcher.threshold();
                         if let Some(t) = threshold {
                             matcher.set_threshold(t);
                         }
-                        matcher.find_image_cached(&capture.image, &template, image_id)
+                        let result = matcher.find_image_bounded(
+                            &capture.image,
+                            &template,
+                            None,
+                            Duration::from_millis(3000),
+                        );
+                        if threshold.is_some() {
+                            matcher.set_threshold(previous);
+                        }
+                        result
                     };
 
                     if let Some(c) = result.confidence {
@@ -121,6 +181,12 @@ impl Executor {
                             duration.as_millis(),
                             image_id
                         );
+                        self.last_evidence = Some(evidence_for(
+                            &capture.origin_x,
+                            &capture.origin_y,
+                            &result,
+                            metadata.name.clone(),
+                        ));
                         return Ok((true, match_center(&capture.origin_x, &capture.origin_y, &result), best_confidence));
                     }
                 }
@@ -145,6 +211,16 @@ impl Executor {
             );
         }
 
+        self.last_evidence = Some(BlockEvidence {
+            score: if best_confidence > 0.0 {
+                Some(best_confidence)
+            } else {
+                None
+            },
+            hit_rect: None,
+            target: Some(metadata.name.clone()),
+        });
+
         Ok((false, (0, 0), best_confidence))
     }
 
@@ -164,5 +240,39 @@ impl Executor {
     pub async fn cache_stats(&self) -> crate::matching::CacheStats {
         let matcher = self.matcher.lock().await;
         matcher.cache_stats()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::matching::MatchResult;
+
+    #[test]
+    fn negative_origin_does_not_wrap_coordinates() {
+        let result = MatchResult::found(10, 20, 0.9, 4, 6);
+        // A monitor to the left of the primary has a negative origin. The old
+        // implementation cast it to u32 and wrapped to ~4.29e9.
+        assert_eq!(match_center(&-1920, &-40, &result), (-1910, -20));
+    }
+
+    #[test]
+    fn positive_origin_is_added() {
+        let result = MatchResult::found(10, 20, 0.9, 4, 6);
+        assert_eq!(match_center(&100, &200, &result), (110, 220));
+    }
+
+    #[test]
+    fn evidence_rect_is_screen_space() {
+        // Match center is image-relative; the origin is added once.
+        let result = MatchResult::found(10, 20, 0.9, 20, 10);
+        let evidence = evidence_for(&100, &200, &result, "button".to_string());
+        assert_eq!(evidence.score, Some(0.9));
+        let rect = evidence.hit_rect.expect("rect");
+        assert_eq!(rect.x, 100);
+        assert_eq!(rect.y, 215);
+        assert_eq!(rect.width, 20);
+        assert_eq!(rect.height, 10);
+        assert_eq!(evidence.target.as_deref(), Some("button"));
     }
 }

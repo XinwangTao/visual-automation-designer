@@ -4,6 +4,31 @@
 
 ---
 
+## [Unreleased]
+
+### Added
+- **`vadctl` 无头调试入口**（`src-tauri/src/bin/vadctl.rs` + `src-tauri/src/cli/`）：
+  `doctor` / `validate` / `list` / `get` / `find` / `uia` / `click-target` / `run` / `step`，统一 JSON 输出与退出码 `0/2/3/4/5`。
+- **执行证据**：`run`/`step` 写入 `runs/<timestamp>/report.json`，每步包含截图、匹配分数、命中矩形、耗时、尝试次数与错误。
+- **UIA 目标定位**（`platform/uia.rs`，移植自 MIT 许可的 mouse-recorder）：
+  窗口标题子串 + 控件 name 子串 / automationId / class / controlType / index。
+- **点击安全门**：UIA 点击前先提窗（AttachThreadInput + SetForegroundWindow），再重读控件矩形，最后用 `WindowFromPoint + GetAncestor(GA_ROOT)` 校验遮挡；被遮挡默认拒点，`--force` 才绕过。
+- **`vad-mcp`**：MCP stdio 薄包装，转调 `vadctl --json`，暴露 `vad_run` / `vad_validate` / `vad_find` / `vad_uia_find` / `vad_click_target` 等工具。
+- **模板搜索预算**：`find_image_bounded` 支持 ROI、3 秒时间预算、大模板粗扫 + 局部细扫；CLI `find` 默认使用。
+- **Dry-run**：解析坐标/模板/UIA 目标但不点击、不提窗、不等待、不写差异热力图。
+
+### Fixed
+- **负坐标回绕**：点击坐标从 `u32` 改为 `i32`，`match_center` 不再把负的显示器原点强转 `u32`；副屏在主屏左侧时不再点到 `(-1,-1)`。
+- **单步重复执行**：`Executor::step()` 执行后推进 `current_block`，下一次 step 不再重复执行同一块；流程结束后也不从入口重跑。
+- **阈值状态泄漏**：`find_image_on_screen` 的临时阈值只在单次调用内生效，不再污染后续 `None` 调用。
+- **UIA 遮挡拒点**：覆盖窗口时返回目标错误（退出码 3）而不是把点击落到错误应用。
+
+### Changed
+- 执行引擎从 `tauri::AppHandle` 解耦为 `EventSink`，GUI、CLI、MCP 共用同一执行核心。
+- 点击坐标语义统一为虚拟桌面物理像素（可为负），GUI 配置面板新增 UIA 点击模式。
+
+---
+
 ## [1.0.1] - 2026-07-11
 
 ### Changed

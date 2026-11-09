@@ -156,7 +156,17 @@ type TauriBlockConfigPayload =
       type: 'click';
       mode:
         | { mode: 'coordinates'; x: number; y: number }
-        | { mode: 'image'; imageId?: string };
+        | { mode: 'image'; imageId?: string }
+        | {
+            mode: 'uia';
+            window: string;
+            name?: string;
+            automationId?: string;
+            className?: string;
+            controlType?: string;
+            index?: number;
+            force?: boolean;
+          };
       count: number;
     }
   | {

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>vadctl AI 无头调试 — 工作流</title>
+<style>
+  :root{--bg:#0f1216;--panel:#171c23;--ink:#e8edf3;--muted:#9aa7b4;--line:#3a4655;
+        --ok:#4cc38a;--warn:#e0a33e;--bad:#e05d5d;--accent:#5aa9e6;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 "Segoe UI","Microsoft YaHei",sans-serif}
+  header{padding:20px 28px 8px;border-bottom:1px solid var(--line)}
+  h1{margin:0 0 4px;font-size:19px;font-weight:600}
+  header p{margin:0;color:var(--muted);font-size:12.5px}
+  .wrap{overflow:auto;padding:12px 28px 28px}
+  svg{display:block;min-width:1180px}
+  .box{fill:var(--panel);stroke:var(--line);stroke-width:1.5;rx:10}
+  .box.actor{stroke:var(--accent)}
+  .box.store{stroke:var(--warn)}
+  .box.exit{stroke:var(--bad)}
+  .box.exec{stroke:var(--ok)}
+  .t{fill:var(--ink);font-size:13.5px;font-weight:600}
+  .s{fill:var(--muted);font-size:11px}
+  .e{stroke:#7c8b9c;stroke-width:1.8;fill:none;marker-end:url(#arrow)}
+  .e.fail{stroke:var(--bad);stroke-dasharray:6 4}
+  .e.dry{stroke:var(--accent);stroke-dasharray:4 4}
+  .el{fill:#c2ccd7;font-size:11px}
+  .el.fail{fill:var(--bad)}
+  .el.dry{fill:var(--accent)}
+  .legend{display:flex;gap:24px;flex-wrap:wrap;margin:8px 0 0;color:var(--muted);font-size:12px}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:middle}
+  .notes{margin:14px 0 0;padding:12px 16px;background:var(--panel);border:1px solid var(--line);border-radius:8px;max-width:1100px}
+  .notes h2{margin:0 0 6px;font-size:13px;color:var(--ink)}
+  .notes ul{margin:0;padding-left:18px;color:var(--muted)}
+  code{color:#cfe3f5;background:#1d242d;padding:1px 4px;border-radius:4px}
+</style>
+</head>
+<body>
+<header>
+  <h1>vadctl — 让 AI 自己跑流程、看证据、定位失败</h1>
+  <p>项目：visual-automation-designer ｜ 级别：L2 ｜ 图版本：2026-11-09 ｜ 对应 brief：docs/product/ai-debug-cli_brief.md</p>
+</header>
+<div class="wrap">
+<svg viewBox="0 0 1180 660" width="1180" height="660" role="img" aria-label="vadctl 工作流图">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#7c8b9c"/>
+    </marker>
+  </defs>
+
+  <!-- N1 -->
+  <g id="N1">
+    <rect class="box actor" x="24" y="96" width="150" height="72"/>
+    <text class="t" x="40" y="126">AI Agent / 脚本</text>
+    <text class="s" x="40" y="144">Claude Code、MCP 客户端</text>
+  </g>
+  <!-- N2 -->
+  <g id="N2">
+    <rect class="box" x="214" y="96" width="162" height="72"/>
+    <text class="t" x="230" y="126">vadctl 入口</text>
+    <text class="s" x="230" y="144">doctor/run/step/find/uia</text>
+  </g>
+  <!-- N3 -->
+  <g id="N3">
+    <rect class="box" x="416" y="96" width="172" height="72"/>
+    <text class="t" x="432" y="126">加载 + 结构校验</text>
+    <text class="s" x="432" y="144">Flow JSON / FlowValidator</text>
+  </g>
+  <!-- N4 -->
+  <g id="N4">
+    <rect class="box" x="628" y="96" width="178" height="72"/>
+    <text class="t" x="644" y="126">目标解析</text>
+    <text class="s" x="644" y="144">坐标 / 模板(ROI+预算) / UIA</text>
+  </g>
+  <!-- N5 -->
+  <g id="N5">
+    <rect class="box" x="872" y="40" width="176" height="76"/>
+    <text class="t" x="888" y="70">点击安全门</text>
+    <text class="s" x="888" y="88">提窗 → 重读矩形</text>
+    <text class="s" x="888" y="104">→ WindowFromPoint</text>
+  </g>
+  <!-- N6 -->
+  <g id="N6">
+    <rect class="box exec" x="872" y="196" width="176" height="76"/>
+    <text class="t" x="888" y="226">动作执行</text>
+    <text class="s" x="888" y="244">点击 / 输入 / 等待 / 断言</text>
+    <text class="s" x="888" y="260">Executor + InputController</text>
+  </g>
+  <!-- N7 -->
+  <g id="N7">
+    <rect class="box store" x="628" y="352" width="196" height="82"/>
+    <text class="t" x="644" y="382">证据落盘</text>
+    <text class="s" x="644" y="400">runs/&lt;ts&gt;/report.json</text>
+    <text class="s" x="644" y="416">截图 · 分数 · 矩形 · 耗时</text>
+  </g>
+  <!-- N8 -->
+  <g id="N8">
+    <rect class="box exit" x="330" y="520" width="330" height="86"/>
+    <text class="t" x="348" y="550">结果输出 / 失败出口</text>
+    <text class="s" x="348" y="568">stdout JSON + 退出码</text>
+    <text class="s" x="348" y="584">0 成功 · 2 解析/校验 · 3 未找到/遮挡</text>
+    <text class="s" x="348" y="598">4 断言 · 5 运行时</text>
+  </g>
+
+  <!-- edges -->
+  <path class="e" d="M174,132 L210,132"/>
+  <text class="el" x="178" y="124">调用</text>
+  <path class="e" d="M376,132 L412,132"/>
+  <text class="el" x="380" y="124">加载</text>
+  <path class="e" d="M588,132 L624,132"/>
+  <text class="el" x="596" y="124">校验通过</text>
+
+  <!-- N4 -> N5 -->
+  <path class="e" d="M806,120 C836,120 842,78 868,78"/>
+  <text class="el" x="812" y="96">UIA 目标</text>
+  <!-- N4 -> N6 -->
+  <path class="e" d="M806,150 C834,150 840,234 868,234"/>
+  <text class="el" x="808" y="196">坐标 / 模板</text>
+  <!-- N5 -> N6 -->
+  <path class="e" d="M960,116 L960,192"/>
+  <text class="el" x="968" y="160">未被遮挡</text>
+  <!-- N4 -> N7 dry-run -->
+  <path class="e dry" d="M700,168 C700,250 710,300 714,348"/>
+  <text class="el dry" x="586" y="286">--dry-run 只解析不动作</text>
+  <!-- N6 -> N7 -->
+  <path class="e" d="M944,272 C944,320 900,340 828,372"/>
+  <text class="el" x="886" y="330">每步结果</text>
+  <!-- N7 -> N8 -->
+  <path class="e" d="M700,434 C700,486 620,500 560,516"/>
+  <text class="el" x="620" y="486">证据路径</text>
+
+  <!-- failures -->
+  <path class="e fail" d="M480,168 C470,300 440,440 448,516"/>
+  <text class="el fail" x="352" y="300">校验/解析失败 → 2</text>
+  <path class="e fail" d="M650,168 C600,260 520,420 500,516"/>
+  <text class="el fail" x="500" y="356">目标未找到 → 3</text>
+  <path class="e fail" d="M1048,78 C1110,180 1110,470 662,566"/>
+  <text class="el fail" x="1036" y="468">被遮挡 → 3（--force 跳过）</text>
+  <path class="e fail" d="M1048,236 C1100,330 1060,520 664,578"/>
+  <text class="el fail" x="1010" y="392">断言/运行时 → 4/5</text>
+</svg>
+
+<div class="legend">
+  <span><i class="dot" style="background:#5aa9e6"></i>外部调用方</span>
+  <span><i class="dot" style="background:#4cc38a"></i>执行与安全门</span>
+  <span><i class="dot" style="background:#e0a33e"></i>证据存储</span>
+  <span><i class="dot" style="background:#e05d5d"></i>失败出口</span>
+  <span>虚线：dry-run / 失败路径</span>
+</div>
+
+<div class="notes">
+  <h2>关键约束与人工兜底</h2>
+  <ul>
+    <li>MCP 服务器（<code>vad-mcp</code>）只是薄包装：转调 <code>vadctl --json</code>，不复制业务逻辑。</li>
+    <li>UIA 目标必须先提窗、再重读控件矩形、再校验 <code>WindowFromPoint</code>；被遮挡默认拒点，只有显式 <code>--force</code> 才绕过。</li>
+    <li><code>--dry-run</code> 不执行任何动作、不提窗、不做断言，只解析目标并输出坐标/分数。</li>
+    <li>任一步失败默认短路；证据目录保留成功与失败截图，供 AI 复核或人工重录参考图。</li>
+    <li>坐标统一为物理像素；点击坐标使用 <code>i32</code>，支持副屏负坐标。</li>
+  </ul>
+</div>
+</div>
+</body>
+</html>

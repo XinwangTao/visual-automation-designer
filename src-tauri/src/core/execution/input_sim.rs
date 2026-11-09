@@ -10,6 +10,7 @@ use crate::models::ClickMode;
 use crate::core::BlockResult;
 use crate::platform::InputController;
 
+use super::events::{BlockEvidence, HitRect};
 use super::runner::{safe_execute, Executor};
 
 impl Executor {
@@ -17,9 +18,9 @@ impl Executor {
     ///
     /// Validates: Requirements 8.4 - Exception handling for input operations
     ///
-    /// DPI scaling: Coordinates from user input (ClickMode::Coordinates) are scaled from
-    /// logical (CSS) pixels to physical pixels using the configured dpi_scale factor.
-    /// Coordinates from image matching are already in physical pixels and not scaled.
+    /// DPI scaling: Coordinates from user input (ClickMode::Coordinates) are
+    /// logical (CSS) pixels and are scaled with `dpi_scale`. Coordinates from
+    /// image matching and UIA are already physical screen pixels.
     pub(super) async fn execute_click_block(
         &mut self,
         mode: &ClickMode,
@@ -27,12 +28,13 @@ impl Executor {
     ) -> Result<BlockResult> {
         let (x, y) = match mode {
             ClickMode::Coordinates { x, y } => {
-                // Apply DPI scaling: logical → physical pixels
+                // Apply DPI scaling: logical → physical pixels. Signed values
+                // keep negative virtual-screen coordinates usable.
                 if self.dpi_scale != 1.0 {
                     let sf = self.dpi_scale as f64;
                     (
-                        (*x as f64 * sf).round() as u32,
-                        (*y as f64 * sf).round() as u32,
+                        (*x as f64 * sf).round() as i32,
+                        (*y as f64 * sf).round() as i32,
                     )
                 } else {
                     (*x, *y)
@@ -53,6 +55,15 @@ impl Executor {
                 };
 
                 if let Some(pos) = cached {
+                    let image_name = self.image_library
+                        .get(image_id)
+                        .map(|m| m.name.clone())
+                        .unwrap_or_else(|| image_id.to_string());
+                    self.last_evidence = Some(BlockEvidence {
+                        score: None,
+                        hit_rect: None,
+                        target: Some(format!("cached image {image_name}")),
+                    });
                     pos
                 } else {
                     // Find image on screen
@@ -80,7 +91,65 @@ impl Executor {
                     pos
                 }
             }
+            ClickMode::Uia {
+                window,
+                name,
+                automation_id,
+                class_name,
+                control_type,
+                index,
+                force,
+            } => {
+                #[cfg(windows)]
+                {
+                    let selector = crate::platform::uia::UiaSelector {
+                        name: name.clone(),
+                        automation_id: automation_id.clone(),
+                        class_name: class_name.clone(),
+                        control_type: control_type.clone(),
+                        index: *index,
+                    };
+                    let node = if self.dry_run {
+                        crate::platform::uia::find(window, &selector)
+                            .map_err(AppError::ExecutionFailed)?
+                            .ok_or_else(|| {
+                                AppError::ExecutionFailed(format!(
+                                    "[dry-run] 未找到 UIA 控件: window={window:?} selector={selector:?}"
+                                ))
+                            })?
+                    } else {
+                        crate::platform::uia::prepare_click(
+                            window,
+                            &selector,
+                            force.unwrap_or(false),
+                        )
+                        .map_err(AppError::ExecutionFailed)?
+                    };
+                    self.last_evidence = Some(BlockEvidence {
+                        score: Some(1.0),
+                        hit_rect: Some(HitRect::new(node.x, node.y, node.w as u32, node.h as u32)),
+                        target: Some(format!(
+                            "uia {} \"{}\"",
+                            node.control_type_name, node.name
+                        )),
+                    });
+                    (node.cx(), node.cy())
+                }
+                #[cfg(not(windows))]
+                {
+                    let _ = (window, name, automation_id, class_name, control_type, index, force);
+                    return Err(AppError::ExecutionFailed(
+                        "UIA targets are only supported on Windows".to_string(),
+                    ));
+                }
+            }
         };
+
+        // Dry-run: the target is resolved (and evidence recorded) but no
+        // synthetic input is sent.
+        if self.dry_run {
+            return Ok(BlockResult::Continue);
+        }
 
         // Check stop signal before starting clicks
         if *self.stop_receiver.borrow() {
@@ -122,6 +191,9 @@ impl Executor {
         text: &str,
         interval_ms: Option<u64>,
     ) -> Result<BlockResult> {
+        if self.dry_run {
+            return Ok(BlockResult::Continue);
+        }
         let interval = interval_ms.unwrap_or(10);
 
         let click_result = safe_execute(

@@ -37,10 +37,23 @@ export interface BlockPosition {
 
 /**
  * 点击模式
+ *
+ * coordinates 使用虚拟桌面物理像素，允许负坐标（副屏在主屏左侧/上方）。
+ * uia 通过 Windows UI Automation 定位控件；执行前会提窗、重读矩形并校验遮挡。
  */
 export type ClickMode =
   | { mode: 'coordinates'; x: number; y: number }
-  | { mode: 'image'; imageId?: string };
+  | { mode: 'image'; imageId?: string }
+  | {
+      mode: 'uia';
+      window: string;
+      name?: string;
+      automationId?: string;
+      className?: string;
+      controlType?: string;
+      index?: number;
+      force?: boolean;
+    };
 
 /**
  * 条件操作

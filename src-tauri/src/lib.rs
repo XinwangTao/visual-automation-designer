@@ -5,6 +5,9 @@
 /// Tauri command handlers
 pub mod commands;
 
+/// Headless CLI used by AI agents and scripts (`vadctl`, `vad-mcp`)
+pub mod cli;
+
 /// Core business logic modules
 pub mod core;
 

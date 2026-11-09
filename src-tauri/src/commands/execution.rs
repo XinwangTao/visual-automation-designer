@@ -12,12 +12,35 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
 
-use crate::core::execution::{ExecutionController, Executor, ExecutionStatus};
-use crate::core::execution::ExecutionEvent;
+use crate::core::execution::{
+    EventSink, ExecutionController, ExecutionEvent, ExecutionStatus, Executor, SharedEventSink,
+};
 use crate::error::{AppError, Result};
 use crate::models::{FlowId, ImageId, ImageMetadata};
 use crate::platform::{InputController, ScreenCapture};
 use std::fs;
+
+/// Delivers executor events to the Tauri frontend.
+///
+/// The executor core no longer depends on `AppHandle`; headless binaries plug in
+/// their own sink while the GUI keeps emitting `execution-event`.
+struct TauriEventSink {
+    app_handle: AppHandle,
+}
+
+impl EventSink for TauriEventSink {
+    fn emit(&self, event: &ExecutionEvent) {
+        if let Err(e) = self.app_handle.emit("execution-event", event) {
+            log::error!("Failed to emit execution event: {}", e);
+        }
+    }
+}
+
+fn event_sink(app_handle: &AppHandle) -> SharedEventSink {
+    Arc::new(TauriEventSink {
+        app_handle: app_handle.clone(),
+    })
+}
 
 /// Application state containing the execution state
 pub struct ExecutionState {
@@ -106,7 +129,11 @@ pub async fn execute_flow(
         .join("images");
     
     // Create executor
-    let mut executor = Executor::new(flow, execution_state.app_handle.clone(), images_dir);
+    let mut executor = Executor::new(
+        flow,
+        event_sink(&execution_state.app_handle),
+        images_dir,
+    );
     executor.set_image_library(image_library);
 
     // Query real DPI scale factor for coordinate correction.
@@ -229,7 +256,11 @@ pub async fn step_execution(
             .join("images");
         
         // Create executor
-        let mut executor = Executor::new(flow, execution_state.app_handle.clone(), images_dir);
+        let mut executor = Executor::new(
+        flow,
+        event_sink(&execution_state.app_handle),
+        images_dir,
+    );
         executor.set_image_library(image_library);
 
         // Query real DPI scale factor for coordinate correction

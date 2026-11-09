@@ -140,6 +140,42 @@ impl MatchConfig {
     }
 }
 
+/// Rectangle (image coordinates) limiting a template search.
+///
+/// Coordinates are relative to the captured image's top-left corner, matching
+/// `CaptureResult`. Callers that receive virtual-screen pixels must subtract
+/// the capture origin first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchRegion {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl SearchRegion {
+    pub fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
+        Self { x, y, width, height }
+    }
+
+    /// Clamp to the haystack; returns `None` for a degenerate region.
+    fn clamp_to(self, haystack_width: u32, haystack_height: u32) -> Option<(u32, u32, u32, u32)> {
+        if self.width == 0 || self.height == 0 {
+            return None;
+        }
+        let x = self.x.min(haystack_width);
+        let y = self.y.min(haystack_height);
+        let width = self.width.min(haystack_width.saturating_sub(x));
+        let height = self.height.min(haystack_height.saturating_sub(y));
+        if width == 0 || height == 0 {
+            None
+        } else {
+            Some((x, y, width, height))
+        }
+    }
+}
+
+
 /// Flat grayscale buffer — converts a DynamicImage to a contiguous f64 array
 /// once, eliminating repeated `get_pixel()` calls (which involve dynamic
 /// dispatch, bounds checks, and colour conversion) during template matching.
@@ -370,6 +406,78 @@ impl ImageMatcher {
         }
     }
 
+    /// Find a template within an optional region, bounded by a time budget.
+    ///
+    /// This is the headless/AI-safe variant of [`find_image`]:
+    /// - `region` limits the search (ROI-first; fall back to full screen is the
+    ///   caller's choice).
+    /// - `budget` caps the coarse scan; the best hit found so far is returned
+    ///   even when the budget expires.
+    /// - large templates use a coarse step and a fine refinement around the
+    ///   best position, so a full-desktop search cannot run for minutes.
+    ///
+    /// Returned centers are image coordinates relative to the full haystack.
+    pub fn find_image_bounded(
+        &self,
+        haystack: &DynamicImage,
+        needle: &DynamicImage,
+        region: Option<SearchRegion>,
+        budget: Duration,
+    ) -> MatchResult {
+        let haystack_width = haystack.width();
+        let haystack_height = haystack.height();
+        let needle_width = needle.width();
+        let needle_height = needle.height();
+
+        let (rx, ry, rw, rh) = match region {
+            Some(r) => match r.clamp_to(haystack_width, haystack_height) {
+                Some(v) => v,
+                None => return MatchResult::not_found(),
+            },
+            None => (0, 0, haystack_width, haystack_height),
+        };
+
+        if needle_width > rw || needle_height > rh {
+            return MatchResult::not_found();
+        }
+
+        // Crop the ROI so precomputation (integral image) only covers the
+        // region we actually search.
+        let region_image = haystack.crop_imm(rx, ry, rw, rh);
+        let needle_cache = Self::precompute_needle(needle);
+        let (gray, sat) = Self::precompute_haystack(&region_image);
+
+        let deadline = Instant::now() + budget;
+        let (best_x, best_y, best_score, exhausted) = self.template_match_bounded(
+            &gray,
+            &sat,
+            &needle_cache,
+            Some(deadline),
+            true,
+        );
+
+        if exhausted {
+            log::warn!(
+                "Template search budget ({}ms) exhausted; returning best score {:.3}",
+                budget.as_millis(),
+                best_score
+            );
+        }
+
+        if best_score >= self.config.threshold {
+            let center_x = rx + best_x + needle_width / 2;
+            let center_y = ry + best_y + needle_height / 2;
+            MatchResult::found(center_x, center_y, best_score, needle_width, needle_height)
+        } else {
+            MatchResult {
+                found: false,
+                confidence: Some(best_score),
+                ..MatchResult::not_found()
+            }
+        }
+    }
+
+
     /// Find all occurrences of a template image
     ///
     /// # Arguments
@@ -443,6 +551,24 @@ impl ImageMatcher {
         sat: &IntegralImage,
         needle_cache: &NeedleCache,
     ) -> (u32, u32, f64) {
+        let (x, y, score, _) =
+            self.template_match_bounded(gray, sat, needle_cache, None, false);
+        (x, y, score)
+    }
+
+    /// Template matching with optional deadline and coarse-to-fine scan.
+    ///
+    /// Returns `(best_x, best_y, best_score, budget_exhausted)`. When the
+    /// deadline is hit, the best score seen so far is returned (never a
+    /// fabricated match); callers decide whether it clears their threshold.
+    fn template_match_bounded(
+        &self,
+        gray: &GrayBuffer,
+        sat: &IntegralImage,
+        needle_cache: &NeedleCache,
+        deadline: Option<Instant>,
+        coarse: bool,
+    ) -> (u32, u32, f64, bool) {
         let needle_width = needle_cache.width;
         let needle_height = needle_cache.height;
 
@@ -452,12 +578,26 @@ impl ImageMatcher {
         let mut best_x = 0;
         let mut best_y = 0;
         let mut best_score = 0.0;
+        let mut exhausted = false;
 
-        // Sample every few pixels for performance
-        let step = if needle_width > 50 || needle_height > 50 { 2 } else { 1 };
+        // Large templates get a coarser first pass (1..8 px); the refinement
+        // below recovers sub-step accuracy around the winner.
+        let step = if coarse {
+            (needle_width.min(needle_height) / 16).clamp(1, 8)
+        } else if needle_width > 50 || needle_height > 50 {
+            2
+        } else {
+            1
+        };
 
-        for y in (0..search_height).step_by(step) {
-            for x in (0..search_width).step_by(step) {
+        'scan: for y in (0..search_height).step_by(step as usize) {
+            if let Some(deadline) = deadline {
+                if Instant::now() >= deadline {
+                    exhausted = true;
+                    break 'scan;
+                }
+            }
+            for x in (0..search_width).step_by(step as usize) {
                 let score = self.calculate_ncc_at(gray, sat, needle_cache, x, y);
                 if score > best_score {
                     best_score = score;
@@ -467,7 +607,8 @@ impl ImageMatcher {
             }
         }
 
-        // Refine search around best position
+        // Refine search around best position, even when the coarse budget ran
+        // out: the neighbourhood is tiny and prevents a half-pixel miss.
         if best_score > 0.5 {
             let refine_radius = step as i32;
             let start_x = (best_x as i32 - refine_radius).max(0) as u32;
@@ -490,7 +631,7 @@ impl ImageMatcher {
             }
         }
 
-        (best_x, best_y, best_score)
+        (best_x, best_y, best_score, exhausted)
     }
 
     /// Calculate Normalized Cross-Correlation at a specific position.
@@ -844,6 +985,26 @@ impl CachedImageMatcher {
         self.cache.stats()
     }
     
+    /// Find an image inside a region with a bounded search and no cache.
+    ///
+    /// Region/budget are part of the semantics, so the plain cache key (image
+    /// hash only) would return stale hits for a different ROI. Callers that
+    /// need repeat speed should use `find_image_cached` with full-screen
+    /// captures instead.
+    pub fn find_image_bounded(
+        &mut self,
+        haystack: &DynamicImage,
+        needle: &DynamicImage,
+        region: Option<SearchRegion>,
+        budget: Duration,
+    ) -> MatchResult {
+        self.metrics.record_cache_miss();
+        let start = Instant::now();
+        let result = self.matcher.find_image_bounded(haystack, needle, region, budget);
+        self.metrics.record_match(start.elapsed());
+        result
+    }
+
     /// Find an image with caching
     ///
     /// This method first checks the cache for a recent match result.
@@ -856,7 +1017,7 @@ impl CachedImageMatcher {
     ) -> MatchResult {
         // Create cache key
         let key = CacheKey::new(image_id, needle, haystack);
-        
+
         // Check cache
         if let Some(cached_result) = self.cache.get(&key) {
             self.metrics.record_cache_hit();
@@ -2380,5 +2541,55 @@ mod tests {
         // Both are uniform 128 → should still pass
         assert!(result.passed);
         assert_eq!(result.diff_percentage, 0.0);
+    }
+
+    fn patterned_image(width: u32, height: u32, seed: u32) -> DynamicImage {
+        let mut img = ImageBuffer::new(width, height);
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
+            *pixel = Rgba([
+                ((x * 13 + y * 7 + seed) % 256) as u8,
+                ((x * 3 + y * 17 + seed * 5) % 256) as u8,
+                ((x * 19 + y * 11 + seed * 3) % 256) as u8,
+                255,
+            ]);
+        }
+        DynamicImage::ImageRgba8(img)
+    }
+
+    #[test]
+    fn bounded_search_respects_roi_and_reports_full_image_coords() {
+        let haystack = patterned_image(200, 150, 7);
+        let needle = haystack.crop_imm(120, 60, 24, 18);
+        let matcher =
+            ImageMatcher::with_config(MatchConfig::with_threshold(0.9));
+        let result = matcher.find_image_bounded(
+            &haystack,
+            &needle,
+            Some(SearchRegion::new(100, 40, 80, 80)),
+            Duration::from_millis(3000),
+        );
+        assert!(result.found, "pattern should be found inside the ROI");
+        let cx = result.center_x.unwrap() as i32;
+        let cy = result.center_y.unwrap() as i32;
+        assert!((cx - 132).abs() <= 2, "center x was {cx}");
+        assert!((cy - 69).abs() <= 2, "center y was {cy}");
+    }
+
+    #[test]
+    fn bounded_search_misses_outside_roi() {
+        let haystack = patterned_image(200, 150, 11);
+        let needle = haystack.crop_imm(10, 10, 20, 16);
+        let matcher =
+            ImageMatcher::with_config(MatchConfig::with_threshold(0.95));
+        // Region far away from the real location; the search must not peek
+        // outside it and must return the best (low) score.
+        let result = matcher.find_image_bounded(
+            &haystack,
+            &needle,
+            Some(SearchRegion::new(150, 100, 50, 50)),
+            Duration::from_millis(3000),
+        );
+        assert!(!result.found);
+        assert!(result.confidence.unwrap_or(1.0) < 0.95);
     }
 }

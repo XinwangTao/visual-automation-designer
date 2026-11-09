@@ -91,12 +91,41 @@ impl BlockPosition {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ClickMode {
-    /// Click at specific coordinates
-    Coordinates { x: u32, y: u32 },
+    /// Click at specific virtual-screen physical pixels.
+    ///
+    /// Signed because monitors left of / above the primary have negative
+    /// origins on the Windows virtual desktop.
+    Coordinates { x: i32, y: i32 },
     /// Click at the center of an image found on screen
     Image {
         #[serde(alias = "image_id")]
         image_id: Option<crate::models::image::ImageId>,
+    },
+    /// Click a Windows UI Automation control.
+    ///
+    /// The owning window is raised first; the control rect is re-read after
+    /// raising; and the click point is checked with `WindowFromPoint` so we
+    /// never click through a covering window. `force` skips only that final
+    /// occlusion check.
+    Uia {
+        /// Window title substring (case-insensitive).
+        window: String,
+        /// Control name substring (case-insensitive).
+        name: Option<String>,
+        /// AutomationId (exact, case-insensitive).
+        #[serde(alias = "automation_id")]
+        automation_id: Option<String>,
+        /// Win32 class name (exact, case-insensitive).
+        #[serde(alias = "class_name")]
+        class_name: Option<String>,
+        /// Control type name, e.g. `Button` (exact, case-insensitive).
+        #[serde(alias = "control_type")]
+        control_type: Option<String>,
+        /// Zero-based index among matches.
+        index: Option<usize>,
+        /// Skip the occlusion check (still raises the window).
+        #[serde(default)]
+        force: Option<bool>,
     },
 }
 

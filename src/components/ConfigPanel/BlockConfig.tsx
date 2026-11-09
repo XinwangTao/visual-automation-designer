@@ -210,6 +210,19 @@ export function BlockConfig({
           );
         }
         if (mode.mode === 'image') return !!(mode as { imageId: string }).imageId;
+        if (mode.mode === 'uia') {
+          const uia = mode as {
+            window?: string;
+            name?: string;
+            automationId?: string;
+            className?: string;
+            controlType?: string;
+          };
+          return (
+            !!uia.window?.trim() &&
+            !!(uia.name?.trim() || uia.automationId?.trim() || uia.className?.trim() || uia.controlType?.trim())
+          );
+        }
         return false;
       }
       case 'wait_image':

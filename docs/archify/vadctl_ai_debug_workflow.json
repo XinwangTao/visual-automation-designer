@@ -1,0 +1,95 @@
+{
+  "name": "vadctl_ai_debug_workflow",
+  "title": "vadctl — 让 AI 自己跑流程、看证据、定位失败",
+  "project": "visual-automation-designer",
+  "level": "L2",
+  "version": "2026-11-09",
+  "brief": "docs/product/ai-debug-cli_brief.md",
+  "nodes": [
+    {
+      "id": "N1",
+      "kind": "actor",
+      "label": "AI Agent / 脚本",
+      "detail": "Claude Code、MCP 客户端",
+      "x": 24, "y": 96, "w": 150, "h": 72
+    },
+    {
+      "id": "N2",
+      "kind": "process",
+      "label": "vadctl 入口",
+      "detail": "doctor/run/step/find/uia",
+      "x": 214, "y": 96, "w": 162, "h": 72
+    },
+    {
+      "id": "N3",
+      "kind": "process",
+      "label": "加载 + 结构校验",
+      "detail": "Flow JSON / FlowValidator",
+      "x": 416, "y": 96, "w": 172, "h": 72
+    },
+    {
+      "id": "N4",
+      "kind": "process",
+      "label": "目标解析",
+      "detail": "坐标 / 模板(ROI+预算) / UIA",
+      "x": 628, "y": 96, "w": 178, "h": 72
+    },
+    {
+      "id": "N5",
+      "kind": "process",
+      "label": "点击安全门",
+      "detail": "提窗 → 重读矩形 → WindowFromPoint",
+      "x": 872, "y": 40, "w": 176, "h": 76
+    },
+    {
+      "id": "N6",
+      "kind": "process",
+      "label": "动作执行",
+      "detail": "点击 / 输入 / 等待 / 断言；Executor + InputController",
+      "x": 872, "y": 196, "w": 176, "h": 76
+    },
+    {
+      "id": "N7",
+      "kind": "store",
+      "label": "证据落盘",
+      "detail": "runs/<ts>/report.json；截图 · 分数 · 矩形 · 耗时",
+      "x": 628, "y": 352, "w": 196, "h": 82
+    },
+    {
+      "id": "N8",
+      "kind": "exit",
+      "label": "结果输出 / 失败出口",
+      "detail": "stdout JSON + 退出码：0 成功 · 2 解析/校验 · 3 未找到/遮挡 · 4 断言 · 5 运行时",
+      "x": 330, "y": 520, "w": 330, "h": 86
+    }
+  ],
+  "edges": [
+    { "id": "E1", "from": "N1", "to": "N2", "label": "调用", "kind": "normal" },
+    { "id": "E2", "from": "N2", "to": "N3", "label": "加载", "kind": "normal" },
+    { "id": "E3", "from": "N3", "to": "N4", "label": "校验通过", "kind": "normal" },
+    { "id": "E4", "from": "N4", "to": "N5", "label": "UIA 目标", "kind": "normal" },
+    { "id": "E5", "from": "N4", "to": "N6", "label": "坐标 / 模板", "kind": "normal" },
+    { "id": "E6", "from": "N5", "to": "N6", "label": "未被遮挡", "kind": "normal" },
+    { "id": "E7", "from": "N4", "to": "N7", "label": "--dry-run 只解析不动作", "kind": "dry" },
+    { "id": "E8", "from": "N6", "to": "N7", "label": "每步结果", "kind": "normal" },
+    { "id": "E9", "from": "N7", "to": "N8", "label": "证据路径", "kind": "normal" },
+    { "id": "E10", "from": "N3", "to": "N8", "label": "校验/解析失败 → 2", "kind": "failure" },
+    { "id": "E11", "from": "N4", "to": "N8", "label": "目标未找到 → 3", "kind": "failure" },
+    { "id": "E12", "from": "N5", "to": "N8", "label": "被遮挡 → 3（--force 跳过）", "kind": "failure" },
+    { "id": "E13", "from": "N6", "to": "N8", "label": "断言/运行时 → 4/5", "kind": "failure" }
+  ],
+  "exits": [
+    { "code": 0, "meaning": "成功（dry-run 解析成功也返回 0）" },
+    { "code": 2, "meaning": "用法错误 / 流程读取或解析失败 / 校验失败" },
+    { "code": 3, "meaning": "目标未找到、分数低于阈值、UIA 控件被遮挡" },
+    { "code": 4, "meaning": "断言或 expect 失败" },
+    { "code": 5, "meaning": "I/O、截图、COM、运行时错误" }
+  ],
+  "constraints": [
+    "MCP 服务器 vad-mcp 只是薄包装：转调 vadctl --json，不复制业务逻辑",
+    "UIA 目标必须先提窗、再重读控件矩形、再校验 WindowFromPoint；被遮挡默认拒点，只有显式 --force 才绕过",
+    "--dry-run 不执行动作、不提窗、不做断言，只解析目标并输出坐标/分数",
+    "任一步失败默认短路；证据目录保留成功与失败截图",
+    "坐标统一为物理像素；点击坐标使用 i32，支持副屏负坐标"
+  ]
+}

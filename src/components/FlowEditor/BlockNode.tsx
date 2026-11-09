@@ -167,11 +167,13 @@ function getFullDescription(blockType: string, label: string, config?: Record<st
 
   if (config) {
     if (blockType === 'click') {
-      const mode = (config as { mode?: { mode: string; x?: number; y?: number; imageId?: string } }).mode;
+      const mode = (config as { mode?: { mode: string; x?: number; y?: number; imageId?: string; window?: string } }).mode;
       if (mode?.mode === 'coordinates') {
         lines.push(`坐标: (${mode.x}, ${mode.y})`);
       } else if (mode?.mode === 'image') {
         lines.push(`图片模式`);
+      } else if (mode?.mode === 'uia') {
+        lines.push(`UIA: ${mode.window || '(未设置窗口)'}`);
       }
       lines.push(`点击次数: ${(config as { count?: number }).count || 1}`);
     } else if (blockType === 'wait_time') {

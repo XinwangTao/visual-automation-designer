@@ -10,9 +10,8 @@ use std::future::Future;
 use std::panic::{self, AssertUnwindSafe};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Emitter};
 use tokio::sync::{Mutex, watch};
 use tokio::time::sleep;
 
@@ -21,7 +20,8 @@ use crate::models::{BlockId, Flow, ImageId, ImageMetadata};
 use crate::matching::{CachedImageMatcher, MatchCacheConfig};
 
 use super::context::ExecutionContext;
-use super::events::{ExecutionEvent, ExecutionStatus};
+use super::events::{BlockEvidence, ExecutionEvent, ExecutionStatus};
+use super::sink::{SharedEventSink};
 
 /// Default timeout for wait operations (30 seconds)
 pub(super) const DEFAULT_WAIT_TIMEOUT_MS: u64 = 30_000;
@@ -80,8 +80,8 @@ pub struct Executor {
     pub(super) flow: Flow,
     /// Execution context
     pub(super) context: Arc<Mutex<ExecutionContext>>,
-    /// Application handle for event emission
-    pub(super) app_handle: AppHandle,
+    /// Event sink (Tauri emitter in the GUI, collector in headless runs)
+    pub(super) sink: SharedEventSink,
     /// Current execution status
     pub(super) status: Arc<Mutex<ExecutionStatus>>,
     /// Stop signal channel
@@ -99,6 +99,14 @@ pub struct Executor {
     /// DPI scale factor for coordinate correction (1.0 = 100%).
     /// When set > 1.0, click coordinates from user input are scaled to physical pixels.
     pub(super) dpi_scale: f32,
+    /// Retry attempts per block after the first failure (0 = no retry).
+    pub(super) retry_limit: u32,
+    /// 1-based attempt number of the block currently executing.
+    pub(super) current_attempt: u32,
+    /// Evidence produced by the block currently executing (if any).
+    pub(super) last_evidence: Option<BlockEvidence>,
+    /// Resolve targets but never perform desktop actions or assertions.
+    pub(super) dry_run: bool,
 }
 
 /// Lightweight control handle for an active executor.
@@ -108,7 +116,7 @@ pub struct ExecutionController {
     stop_signal: watch::Sender<bool>,
     paused: Arc<Mutex<bool>>,
     context: Arc<Mutex<ExecutionContext>>,
-    app_handle: AppHandle,
+    sink: SharedEventSink,
     /// DPI scale factor for coordinate correction (read from executor).
     dpi_scale: f32,
 }
@@ -136,11 +144,8 @@ impl ExecutionController {
         *self.paused.lock().await = true;
 
         if let Some(block_id) = self.context.lock().await.current_block().cloned() {
-            self.app_handle
-                .emit("execution-event", ExecutionEvent::paused(block_id))
-                .map_err(|e| {
-                    AppError::InternalError(format!("Failed to emit event: {}", e))
-                })?;
+            self.sink
+                .emit(&ExecutionEvent::paused(block_id));
         }
 
         *self.status.lock().await = ExecutionStatus::Paused;
@@ -159,11 +164,8 @@ impl ExecutionController {
         *self.paused.lock().await = false;
 
         if let Some(block_id) = self.context.lock().await.current_block().cloned() {
-            self.app_handle
-                .emit("execution-event", ExecutionEvent::resumed(block_id))
-                .map_err(|e| {
-                    AppError::InternalError(format!("Failed to emit event: {}", e))
-                })?;
+            self.sink
+                .emit(&ExecutionEvent::resumed(block_id));
         }
 
         *self.status.lock().await = ExecutionStatus::Running;
@@ -180,12 +182,8 @@ impl ExecutionController {
         *self.paused.lock().await = false;
         let _ = self.stop_signal.send(true);
 
-        self.app_handle
-            .emit(
-                "execution-event",
-                ExecutionEvent::stopped("User requested stop".to_string()),
-            )
-            .map_err(|e| AppError::InternalError(format!("Failed to emit event: {}", e)))?;
+        self.sink
+            .emit(&ExecutionEvent::stopped("User requested stop".to_string()));
 
         *self.status.lock().await = ExecutionStatus::Stopped;
         Ok(())
@@ -194,7 +192,7 @@ impl ExecutionController {
 
 impl Executor {
     /// Create a new executor
-    pub fn new(flow: Flow, app_handle: AppHandle, images_dir: std::path::PathBuf) -> Self {
+    pub fn new(flow: Flow, sink: SharedEventSink, images_dir: std::path::PathBuf) -> Self {
         let (stop_signal, stop_receiver) = watch::channel(false);
 
         // Create cached matcher with default config (5 second cache TTL, 100 max entries)
@@ -204,7 +202,7 @@ impl Executor {
         Self {
             flow,
             context: Arc::new(Mutex::new(ExecutionContext::new())),
-            app_handle,
+            sink,
             status: Arc::new(Mutex::new(ExecutionStatus::Idle)),
             stop_signal,
             stop_receiver,
@@ -213,12 +211,29 @@ impl Executor {
             images_dir,
             matcher: Arc::new(Mutex::new(matcher)),
             dpi_scale: 1.0,
+            retry_limit: 0,
+            current_attempt: 1,
+            last_evidence: None,
+            dry_run: false,
         }
     }
 
     /// Set the image library
     pub fn set_image_library(&mut self, library: HashMap<ImageId, ImageMetadata>) {
         self.image_library = library;
+    }
+
+    /// Set how many times a failing block is retried (0 = no retry).
+    ///
+    /// The GUI keeps the historical zero-retry behaviour; headless runs opt in
+    /// to bounded retries so transient animation/layout delays are absorbed.
+    pub fn set_retry_limit(&mut self, retries: u32) {
+        self.retry_limit = retries;
+    }
+
+    /// Enable dry-run mode: resolve targets, never click/type/assert.
+    pub fn set_dry_run(&mut self, enabled: bool) {
+        self.dry_run = enabled;
     }
 
     /// Create a control handle that can manage this executor while it runs in the background.
@@ -228,7 +243,7 @@ impl Executor {
             stop_signal: self.stop_signal.clone(),
             paused: Arc::clone(&self.paused),
             context: Arc::clone(&self.context),
-            app_handle: self.app_handle.clone(),
+            sink: Arc::clone(&self.sink),
             dpi_scale: self.dpi_scale,
         }
     }
@@ -296,6 +311,16 @@ impl Executor {
         let block_to_execute = match current_block {
             Some(block_id) => block_id,
             None => {
+                // A fresh executor starts at the entry block. Once something
+                // has run, `None` means the flow finished — do not restart it.
+                let blocks_executed = { self.context.lock().await.blocks_executed() };
+                if blocks_executed > 0 {
+                    let mut status = self.status.lock().await;
+                    *status = ExecutionStatus::Completed;
+                    drop(status);
+                    self.emit_event(ExecutionEvent::flow_completed()).await?;
+                    return Ok(());
+                }
                 // Start from entry block
                 match &self.flow.entry_block {
                     Some(entry) => entry.clone(),
@@ -311,7 +336,25 @@ impl Executor {
         };
 
         // Execute the single block
-        self.execute_block(&block_to_execute).await?;
+        self.current_attempt = 1;
+        self.last_evidence = None;
+        let block_result = self.execute_block(&block_to_execute).await?;
+
+        // Advance to the next block so a following step() does not re-run this
+        // one. Previously current_block was left untouched, which made every
+        // step re-execute the same block (and duplicate side effects).
+        let next_block = match self
+            .handle_block_result(block_result, &block_to_execute)
+            .await
+        {
+            Ok(next) => next,
+            Err(e) => {
+                let mut status = self.status.lock().await;
+                *status = ExecutionStatus::Error;
+                return Err(e);
+            }
+        };
+        self.context.lock().await.set_current_block(next_block);
 
         // Update status
         let mut status = self.status.lock().await;
@@ -497,23 +540,64 @@ impl Executor {
                 return Ok(());
             }
 
-            // Execute the block
-            let result = self.execute_block(&block_id).await;
+            // Bounded retry: each attempt re-resolves targets and re-runs the
+            // block. A blocked/occluded UIA click fails fast and is retried
+            // only after the configured limit, mirroring headless tooling.
+            let mut attempt: u32 = 1;
+            loop {
+                self.current_attempt = attempt;
+                self.last_evidence = None;
+                let started = Instant::now();
 
-            match result {
-                Ok(block_result) => {
-                    // Handle result and determine next block
-                    current_block =
-                        self.handle_block_result(block_result, &block_id).await?;
-                }
-                Err(e) => {
-                    // Log error and stop execution
-                    crate::logging::log_error(
-                        &format!("Block execution failed: {}", block_id),
-                        Some(&e.to_string()),
-                        None,
-                    );
-                    return Err(e);
+                match self.execute_block(&block_id).await {
+                    Ok(block_result) => {
+                        match self.handle_block_result(block_result, &block_id).await {
+                            Ok(next) => {
+                                current_block = next;
+                                break;
+                            }
+                            Err(e) if attempt <= self.retry_limit => {
+                                log::warn!(
+                                    "Block {} failed (attempt {}/{}): {}",
+                                    block_id,
+                                    attempt,
+                                    self.retry_limit + 1,
+                                    e
+                                );
+                                attempt += 1;
+                                sleep(Duration::from_millis(250)).await;
+                            }
+                            Err(e) => {
+                                crate::logging::log_error(
+                                    &format!("Block execution failed: {}", block_id),
+                                    Some(&e.to_string()),
+                                    None,
+                                );
+                                return Err(e);
+                            }
+                        }
+                    }
+                    Err(e) if attempt <= self.retry_limit => {
+                        log::warn!(
+                            "Block {} errored (attempt {}/{}): {} ({}ms)",
+                            block_id,
+                            attempt,
+                            self.retry_limit + 1,
+                            e,
+                            started.elapsed().as_millis()
+                        );
+                        attempt += 1;
+                        sleep(Duration::from_millis(250)).await;
+                    }
+                    Err(e) => {
+                        // Log error and stop execution
+                        crate::logging::log_error(
+                            &format!("Block execution failed: {}", block_id),
+                            Some(&e.to_string()),
+                            None,
+                        );
+                        return Err(e);
+                    }
                 }
             }
         }
@@ -538,11 +622,9 @@ impl Executor {
         }
     }
 
-    /// Emit an event to the frontend
+    /// Emit an event to the configured sink.
     pub(super) async fn emit_event(&self, event: ExecutionEvent) -> Result<()> {
-        self.app_handle
-            .emit("execution-event", &event)
-            .map_err(|e| AppError::InternalError(format!("Failed to emit event: {}", e)))?;
+        self.sink.emit(&event);
         Ok(())
     }
 }

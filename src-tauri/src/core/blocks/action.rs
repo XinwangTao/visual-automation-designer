@@ -32,7 +32,7 @@ pub struct ClickBlock {
 
 impl ClickBlock {
     /// Create a new click block with coordinates mode
-    pub fn new_coordinates(x: u32, y: u32, count: u32, position: BlockPosition) -> Self {
+    pub fn new_coordinates(x: i32, y: i32, count: u32, position: BlockPosition) -> Self {
         Self {
             id: BlockId::new(),
             position,
@@ -52,10 +52,10 @@ impl ClickBlock {
     }
 
     /// Get click coordinates (if in coordinates mode)
-    pub fn coordinates(&self) -> Option<(u32, u32)> {
+    pub fn coordinates(&self) -> Option<(i32, i32)> {
         match &self.mode {
             ClickMode::Coordinates { x, y } => Some((*x, *y)),
-            ClickMode::Image { .. } => None,
+            ClickMode::Image { .. } | ClickMode::Uia { .. } => None,
         }
     }
 
@@ -63,7 +63,7 @@ impl ClickBlock {
     pub fn image_id(&self) -> Option<&ImageId> {
         match &self.mode {
             ClickMode::Image { image_id } => image_id.as_ref(),
-            ClickMode::Coordinates { .. } => None,
+            ClickMode::Coordinates { .. } | ClickMode::Uia { .. } => None,
         }
     }
 }

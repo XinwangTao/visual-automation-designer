@@ -304,7 +304,7 @@ mod tests {
         Flow::new("Test Flow".to_string())
     }
 
-    fn add_click_block(flow: &mut Flow, x: u32, y: u32) -> BlockId {
+    fn add_click_block(flow: &mut Flow, x: i32, y: i32) -> BlockId {
         let block = BlockNode::new(
             BlockType::Action {
                 action: ActionType::Click,

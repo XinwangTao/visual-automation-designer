@@ -40,6 +40,60 @@ npm run lint         # ESLint 检查
 npm run tauri build  # 打包桌面应用
 ```
 
+## AI 无头调试（vadctl / vad-mcp）
+
+GUI 之外提供两个控制台程序，供 AI Agent 和脚本直接调用；它们复用同一套 Rust 执行核心：
+
+```bash
+cd src-tauri
+cargo build --bins --release
+# 产物：
+#   target/release/vadctl.exe    命令行调试入口
+#   target/release/vad-mcp.exe   MCP stdio 服务（转调 vadctl）
+```
+
+常用命令：
+
+```bash
+vadctl doctor                                  # 数据目录/显示器/输入/UIA 自检
+vadctl validate --flow flow.json               # 结构化校验错误（含 blockId）
+vadctl run --flow flow.json --dry-run          # 只解析目标，不点击
+vadctl run --flow flow.json                    # 真跑并写证据
+vadctl step --flow flow.json --index 3         # 只执行前 3 个块
+vadctl find --template ok.png --roi 0,0,800,600
+vadctl uia --window "记事本" --name 编辑 --control-type Edit
+vadctl click-target --uia --window "记事本" --name 确定 --dry-run
+```
+
+`run`/`step` 的证据目录：`<data-dir>/runs/<timestamp>/`（默认 `%APPDATA%\com.visualautomation.designer`），包含每步截图与 `report.json`：
+
+```json
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "steps": [
+    {
+      "index": 0,
+      "blockId": "...",
+      "action": "click:uia",
+      "ok": true,
+      "attempts": 1,
+      "score": 1.0,
+      "hitRect": { "x": 120, "y": 340, "width": 80, "height": 24 },
+      "elapsedMs": 42,
+      "screenshot": "00_xxx.png",
+      "target": "uia Button \"确定\""
+    }
+  ]
+}
+```
+
+退出码：`0` 成功；`2` 用法/解析/校验失败；`3` 目标未找到或被遮挡；`4` 断言/预期失败；`5` I/O/COM/运行时错误。
+
+UIA 点击默认先提窗、重读控件矩形并用 `WindowFromPoint` 校验遮挡；被其他窗口遮挡时拒绝点击（退出码 3），只有 `--force` 才跳过校验。
+
+MCP 用法（Claude Code 等）：把 `vad-mcp.exe` 作为 stdio MCP server 注册即可，工具列表包含 `vad_run`、`vad_validate`、`vad_find`、`vad_uia_find`、`vad_click_target` 等。若 `vad-mcp` 不在 `vadctl` 同目录，设置 `VADCTL_PATH`。
+
 ## 核心功能
 
 - **可视化流程编辑** — 基于 ReactFlow 的画布，拖拽节点、连线编排自动化步骤
