@@ -207,37 +207,76 @@ type TauriBlockConfigPayload =
       falseBranch: BlockId[];
     };
 
+/**
+ * 块配置的 type 在前端与后端用的是两套命名：
+ * 前端用下划线（wait_image），Rust 侧 serde 用 camelCase 变体名（waitImage）。
+ * 后端返回的 config 会被直接塞进节点数据，如果不在进出两个方向上对齐，
+ * 再次发给后端时就会在 switch 里落空、序列化成「没有 config 字段」而被拒绝。
+ */
+const BLOCK_TYPE_TO_TAURI_TYPE: Record<string, string> = {
+  click: 'click',
+  wait_image: 'waitImage',
+  wait_time: 'waitTime',
+  input_text: 'inputText',
+  loop: 'loop',
+  loop_infinite: 'loopInfinite',
+  condition: 'condition',
+  text_extract: 'textExtract',
+  screenshot_assert: 'screenshotAssert',
+  text_check: 'textCheck',
+};
+
+const TAURI_TYPE_TO_BLOCK_TYPE: Record<string, string> = Object.fromEntries(
+  Object.entries(BLOCK_TYPE_TO_TAURI_TYPE).map(([frontendType, tauriType]) => [tauriType, frontendType]),
+);
+
+/**
+ * 把后端返回的块配置归一化成前端命名。
+ *
+ * 未知 type 原样保留：这里不是校验入口，静默改名会让真正的类型错误更难发现。
+ */
+export function fromTauriBlockConfig(config: unknown): BlockConfig {
+  const type = (config as { type?: unknown } | null)?.type;
+  if (typeof config !== 'object' || config === null || typeof type !== 'string') {
+    return config as BlockConfig;
+  }
+  const mappedType = TAURI_TYPE_TO_BLOCK_TYPE[type] ?? type;
+  return { ...(config as Record<string, unknown>), type: mappedType } as BlockConfig;
+}
+
 function toTauriBlockConfig(config: BlockConfig): TauriBlockConfigPayload {
-  switch (config.type) {
+  // 节点数据里可能已经是后端命名（从后端加载的流程），先归一化再分派。
+  const normalized = fromTauriBlockConfig(config);
+  switch (normalized.type) {
     case 'click':
       return {
         type: 'click',
-        mode: config.mode.mode === 'image'
-          ? { mode: 'image', imageId: config.mode.imageId }
-          : config.mode,
-        count: config.count,
+        mode: normalized.mode.mode === 'image'
+          ? { mode: 'image', imageId: normalized.mode.imageId }
+          : normalized.mode,
+        count: normalized.count,
       };
     case 'wait_image':
       return {
         type: 'waitImage',
-        imageId: config.imageId,
-        timeoutMs: config.timeoutMs,
+        imageId: normalized.imageId,
+        timeoutMs: normalized.timeoutMs,
       };
     case 'wait_time':
       return {
         type: 'waitTime',
-        durationMs: config.durationMs,
+        durationMs: normalized.durationMs,
       };
     case 'input_text':
       return {
         type: 'inputText',
-        text: config.text,
-        intervalMs: config.intervalMs,
+        text: normalized.text,
+        intervalMs: normalized.intervalMs,
       };
     case 'loop':
       return {
         type: 'loop',
-        count: config.count,
+        count: normalized.count,
       };
     case 'loop_infinite':
       return {
@@ -246,33 +285,36 @@ function toTauriBlockConfig(config: BlockConfig): TauriBlockConfigPayload {
     case 'condition':
       return {
         type: 'condition',
-        imageId: config.imageId,
-        condition: config.condition,
-        trueBranch: config.trueBranch,
-        falseBranch: config.falseBranch,
+        imageId: normalized.imageId,
+        condition: normalized.condition,
+        trueBranch: normalized.trueBranch,
+        falseBranch: normalized.falseBranch,
       };
     case 'text_extract':
       return {
         type: 'textExtract',
-        imageId: config.imageId,
-        language: config.language,
+        imageId: normalized.imageId,
+        language: normalized.language,
       };
     case 'screenshot_assert':
       return {
         type: 'screenshotAssert',
-        imageId: config.imageId,
-        threshold: config.threshold,
-        strictMode: config.strictMode,
-        region: config.region,
+        imageId: normalized.imageId,
+        threshold: normalized.threshold,
+        strictMode: normalized.strictMode,
+        region: normalized.region,
       };
     case 'text_check':
       return {
         type: 'textCheck',
-        imageId: config.imageId,
-        keyword: config.keyword,
-        trueBranch: config.trueBranch,
-        falseBranch: config.falseBranch,
+        imageId: normalized.imageId,
+        keyword: normalized.keyword,
+        trueBranch: normalized.trueBranch,
+        falseBranch: normalized.falseBranch,
       };
+    default:
+      // 未知类型原样回传：宁可让后端报「不认识的 type」，也不要在前端静默丢配置。
+      return normalized as unknown as TauriBlockConfigPayload;
   }
 }
 

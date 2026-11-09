@@ -14,6 +14,7 @@ import {
   type BlockConfig,
   type BlockPosition,
   type Connection as TauriConnection,
+  fromTauriBlockConfig,
 } from '../tauri/flow';
 
 // ─── Re-export types ────────────────────────────────────────────────
@@ -116,7 +117,7 @@ export function blockNodeToReactFlowNode(block: TauriBlockNode, isEntryPoint = f
       label,
       blockType: blockTypeStr as never,
       blockCategory,
-      config: block.config as Record<string, unknown>,
+      config: fromTauriBlockConfig(block.config) as Record<string, unknown>,
       isEntryPoint,
       executing: false,
     },
