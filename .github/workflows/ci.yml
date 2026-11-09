@@ -42,7 +42,7 @@ jobs:
       - name: Install Tauri system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libxdo-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libxdo-dev xvfb
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -50,6 +50,8 @@ jobs:
         with:
           workspaces: src-tauri
 
+      # platform 层测试要真实屏幕（截屏、枚举显示器、模拟输入），
+      # headless runner 上必须套一层虚拟 X11。
       - name: cargo test
         working-directory: src-tauri
-        run: cargo test
+        run: xvfb-run -a cargo test
