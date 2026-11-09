@@ -25,7 +25,7 @@ export interface UseFlowEdgesParams {
 
 export interface UseFlowEdgesReturn {
   edgesRef: React.MutableRefObject<Edge[]>;
-  addConnection: (connection: Connection) => Promise<void>;
+  addConnection: (connection: Connection, flowIdOverride?: string) => Promise<void>;
   deleteConnection: (connectionId: string) => Promise<void>;
   handleEdgesChange: (changes: EdgeChange[]) => void;
 }
@@ -39,17 +39,22 @@ export function useFlowEdges(params: UseFlowEdgesParams): UseFlowEdgesReturn {
   // ── addConnection ───────────────────────────────────────────────
 
   const addConnection = useCallback(
-    async (connection: Connection): Promise<void> => {
-      if (!flow) {
+    async (connection: Connection, flowIdOverride?: string): Promise<void> => {
+      // 模板落地时流程刚创建，React state 里的 flow 可能还是上一个；
+      // 与 addNode 一致，允许调用方显式指定目标流程。
+      const activeFlowId = flowIdOverride ?? flow?.id;
+      if (!activeFlowId) {
         throw new Error('请先创建或加载流程');
       }
+      const entryBlock =
+        flow && flow.id === activeFlowId ? flow.entryBlock : undefined;
 
       try {
         if (!connection.source || !connection.target) {
           throw new Error('Cannot create connection: source and target block IDs are required');
         }
         const createdConnection = await tauriCreateConnection(
-          flow.id,
+          activeFlowId,
           connection.source,
           connection.target,
           connection.sourceHandle || undefined
@@ -58,10 +63,10 @@ export function useFlowEdges(params: UseFlowEdgesParams): UseFlowEdgesReturn {
         setEdges((eds) => addEdge(newEdge, eds));
         setNodes((nds) => {
           const nextEdges = addEdge(newEdge, edgesRef.current);
-          return synchronizeNodeSemantics(nds, nextEdges, flow.entryBlock);
+          return synchronizeNodeSemantics(nds, nextEdges, entryBlock);
         });
         setIsDirty(true);
-        await refreshUndoRedoForFlow(flow.id);
+        await refreshUndoRedoForFlow(activeFlowId);
       } catch (err) {
         const error = toError(err);
         setError(error);

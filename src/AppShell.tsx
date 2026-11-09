@@ -18,6 +18,7 @@ import { BlockConfig } from './components/ConfigPanel';
 import { ConfirmDialog, useToast } from './components/common';
 import { useFlow, useExecution, useKeyboardShortcuts, useTheme, buildCanonicalFlow } from './hooks';
 import { installRuntimeIssueBridge } from './runtimeIssueBridge';
+import { FLOW_TEMPLATES, applyFlowTemplate } from './flowTemplates';
 import type { InternalExecutionEvent } from './hooks/useExecution';
 import type { Flow as TauriFlow, ValidationErrorResponse } from './tauri/flow';
 import { validateFlow } from './tauri/flow';
@@ -109,6 +110,7 @@ export function AppShell() {
   const [flowPendingDelete, setFlowPendingDelete] = useState<{ id: string; name: string } | null>(null);
   const [showNewFlowDialog, setShowNewFlowDialog] = useState(false);
   const [newFlowName, setNewFlowName] = useState('');
+  const [newFlowTemplateId, setNewFlowTemplateId] = useState('');
   const [pendingUnsavedAction, setPendingUnsavedAction] = useState<PendingUnsavedAction | null>(null);
   const [pendingPlacement, setPendingPlacement] = useState<PendingPlacement | null>(null);
   const [recentNodeId, setRecentNodeId] = useState<string | null>(null);
@@ -584,10 +586,38 @@ export function AppShell() {
     const trimmedName = newFlowName.trim();
     if (!trimmedName) { showToast('warning', '请输入流程名称'); return; }
     const createdFlow = await createFlowWithFeedback(trimmedName, 'Failed to create flow:');
-    if (createdFlow) { setShowNewFlowDialog(false); setNewFlowName(''); }
-  }, [createFlowWithFeedback, newFlowName, showToast]);
+    if (!createdFlow) return;
 
-  const cancelCreateFlow = useCallback(() => { setShowNewFlowDialog(false); setNewFlowName(''); }, []);
+    // 选了起始模板就地把节点和连线建好：空白画布是新手最大的劝退点。
+    const template = FLOW_TEMPLATES.find((item) => item.id === newFlowTemplateId);
+    if (template) {
+      try {
+        await applyFlowTemplate(template, createdFlow.id, addNode, addConnection);
+        showToast('info', `已载入示例：${template.name}`);
+      } catch (err) {
+        // 模板只是便利功能：失败时保留已创建的空白流程，不要让用户以为流程没建出来。
+        console.error('Failed to apply flow template:', err);
+        showToast('warning', '示例载入失败，已创建空白流程');
+      }
+    }
+
+    setShowNewFlowDialog(false);
+    setNewFlowName('');
+    setNewFlowTemplateId('');
+  }, [
+    addConnection,
+    addNode,
+    createFlowWithFeedback,
+    newFlowName,
+    newFlowTemplateId,
+    showToast,
+  ]);
+
+  const cancelCreateFlow = useCallback(() => {
+    setShowNewFlowDialog(false);
+    setNewFlowName('');
+    setNewFlowTemplateId('');
+  }, []);
 
   const handleShowHelp = useCallback(() => { setShowShortcutHelp(true); }, []);
 
@@ -1032,6 +1062,8 @@ export function AppShell() {
         onChange={setNewFlowName}
         onCancel={cancelCreateFlow}
         onConfirm={() => void handleCreateFlow()}
+        templateId={newFlowTemplateId}
+        onTemplateChange={setNewFlowTemplateId}
       />
     </div>
   );
