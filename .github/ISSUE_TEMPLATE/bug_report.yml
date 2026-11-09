@@ -1,0 +1,47 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请先搜索是否已有同类 Issue。附上日志面板里的相关几行能省一轮追问。
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本
+      description: 在 Releases 页面或应用内「关于」可以看到
+      placeholder: 1.0.5
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统
+      placeholder: Windows 11 23H2 / macOS 14.5 / Ubuntu 24.04
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从打开应用到出问题，一步一步写
+      placeholder: |
+        1. 新建流程，拖入「等待图片」并选图 xxx
+        2. 点执行
+        3. 日志停在 xxx
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      description: 有日志就贴日志，有截图就贴截图
+    validations:
+      required: true

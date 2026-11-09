@@ -1,0 +1,25 @@
+name: 功能建议
+description: 提出一个新功能或改进
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你遇到的实际问题
+      description: 先说场景，再说你希望的解法
+      placeholder: 我每天要等一个加载动画消失，现在只能用「等待时间」硬等 30 秒……
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你希望它怎么工作
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 你试过的替代方案
+      description: 可选，但能说明为什么现有节点不够用
+    validations:
+      required: false

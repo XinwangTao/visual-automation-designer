@@ -1,6 +1,16 @@
 # Visual Automation Designer
 
+[![CI](https://github.com/1716775457damn/visual-automation-designer/actions/workflows/ci.yml/badge.svg)](https://github.com/1716775457damn/visual-automation-designer/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/1716775457damn/visual-automation-designer?label=release)](https://github.com/1716775457damn/visual-automation-designer/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 可视化屏幕自动化流程编辑器 — 通过拖拽节点和连线，像画流程图一样编排屏幕自动化任务。
+
+## 下载
+
+到 [Releases](https://github.com/1716775457damn/visual-automation-designer/releases) 下载安装包：Windows（x64 安装器）、macOS（Intel / Apple Silicon）、Linux（AppImage / deb）。
+
+**第一次用？先读 [使用教程](docs/TUTORIAL.md)**：从安装到跑通第一条「等待图片 → 点击 → 截图断言」流程，大约十分钟。
 
 ## 技术栈
 
