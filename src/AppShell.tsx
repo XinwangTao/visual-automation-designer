@@ -847,7 +847,9 @@ export function AppShell() {
                     onClick={handleClearExecutionLog}
                     title="清空日志"
                   >
-                    🗑️
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                      <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.2 4.5l.6 9h6.4l.6-9M6.8 7v4M9.2 7v4" />
+                    </svg>
                   </button>
                 )}
                 <button
@@ -872,7 +874,7 @@ export function AppShell() {
                 data-testid="validation-panel"
                 style={problemsTabStyle}
               >
-                <p className="config-placeholder__hint-title">🩺 流程问题清单</p>
+                <p className="config-placeholder__hint-title">流程问题清单</p>
                 {validationItems.length === 0 ? (
                   <div className="vscode-problems-empty">没有检测到流程问题。</div>
                 ) : (
@@ -917,7 +919,7 @@ export function AppShell() {
           )}
           {error && (
             <div className="error-message">
-              <span className="error-icon">⚠️</span>
+              <span className="error-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M8 2.2 14.4 13H1.6zM8 6v3.4M8 11.2v.2" /></svg></span>
               <span>{error.message}</span>
               <button onClick={() => window.location.reload()} className="error-retry-btn" type="button">重试</button>
             </div>

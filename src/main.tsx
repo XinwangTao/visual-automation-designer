@@ -4,6 +4,7 @@ import App from './App';
 import './styles/tokens.css';
 import './main.css';
 import './styles/ui-refresh.css';
+import './styles/liquid-glass.css';
 import { logRuntimeIssue } from './tauri/logging';
 
 /**

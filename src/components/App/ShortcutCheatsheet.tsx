@@ -90,7 +90,7 @@ export function ShortcutCheatsheet({ isOpen, onClose }: ShortcutCheatsheetProps)
             </div>
           </div>
           <div className={styles.shortcutCheatsheetCategory}>
-            <div className={styles.shortcutCheatsheetCategoryTitle}>🔧 其他</div>
+            <div className={styles.shortcutCheatsheetCategoryTitle}>其他</div>
             <div className={styles.shortcutCheatsheetItem}>
               <span>显示快捷键帮助</span>
               <div className={styles.shortcutCheatsheetKeys}>

@@ -1248,7 +1248,11 @@ html, body {
   mix-blend-mode: soft-light;
 }
 
-.app > * {
+/* Only the shell layout needs a stacking context above the light field.
+   A blanket `.app > *` rule would turn fixed overlays into relative blocks. */
+[data-testid="flow-toolbar"],
+.app__content,
+.app__status {
   position: relative;
   z-index: 1;
 }

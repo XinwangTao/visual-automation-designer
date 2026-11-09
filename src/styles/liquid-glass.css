@@ -1,0 +1,783 @@
+/**
+ * Liquid Glass — final surface system.
+ *
+ * Loaded after ui-refresh.css. Goal: a restrained, desktop-grade frosted glass
+ * look. No candy-coloured tiles, no solid white slabs: translucent panes, a
+ * hairline specular edge, a soft inner highlight, and a slow muted light field.
+ */
+
+:root {
+  --lg-blur: 30px;
+  --lg-sat: 165%;
+  --lg-pane: rgba(255, 255, 255, 0.34);
+  --lg-pane-strong: rgba(255, 255, 255, 0.52);
+  --lg-pane-soft: rgba(255, 255, 255, 0.22);
+  --lg-border: rgba(255, 255, 255, 0.55);
+  --lg-border-soft: rgba(255, 255, 255, 0.32);
+  --lg-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.14);
+  --lg-shadow: 0 24px 56px rgba(28, 38, 58, 0.14),
+    0 2px 8px rgba(28, 38, 58, 0.05);
+  --lg-shadow-soft: 0 12px 30px rgba(28, 38, 58, 0.10);
+  --lg-ink-soft: rgba(40, 50, 68, 0.48);
+  --lg-inset: inset 0 1px 2px rgba(30, 42, 62, 0.06);
+  --lg-focus: 0 0 0 3px rgba(64, 130, 230, 0.16);
+}
+
+.theme-dark {
+  --lg-pane: rgba(24, 27, 34, 0.52);
+  --lg-pane-strong: rgba(30, 34, 43, 0.68);
+  --lg-pane-soft: rgba(24, 27, 34, 0.36);
+  --lg-border: rgba(255, 255, 255, 0.14);
+  --lg-border-soft: rgba(255, 255, 255, 0.08);
+  --lg-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+  --lg-shadow: 0 30px 70px rgba(0, 0, 0, 0.46),
+    0 2px 10px rgba(0, 0, 0, 0.28);
+  --lg-shadow-soft: 0 16px 38px rgba(0, 0, 0, 0.34);
+  --lg-ink-soft: rgba(255, 255, 255, 0.5);
+  --lg-inset: inset 0 1px 2px rgba(0, 0, 0, 0.34);
+  --lg-focus: 0 0 0 3px rgba(100, 170, 255, 0.22);
+}
+
+/* ── Background: muted liquid light field + grain ───────────────── */
+
+html,
+body {
+  background: #e9eef5;
+}
+
+.theme-dark,
+.theme-dark body {
+  background: #080a0f;
+}
+
+.app {
+  background: transparent;
+  isolation: isolate;
+}
+
+.app::before {
+  content: "";
+  position: fixed;
+  inset: -22%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 46% at 18% 20%, rgba(74, 120, 196, 0.34), transparent 64%),
+    radial-gradient(38% 42% at 84% 16%, rgba(56, 148, 160, 0.26), transparent 66%),
+    radial-gradient(48% 44% at 78% 84%, rgba(110, 92, 180, 0.24), transparent 66%),
+    radial-gradient(40% 42% at 20% 86%, rgba(196, 150, 92, 0.18), transparent 66%),
+    radial-gradient(30% 30% at 50% 52%, rgba(120, 190, 210, 0.14), transparent 70%);
+  filter: blur(64px) saturate(135%);
+  opacity: 0.95;
+  animation: lg-drift 34s ease-in-out infinite alternate;
+}
+
+.app::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+}
+
+.theme-dark .app::before {
+  opacity: 0.7;
+  filter: blur(76px) saturate(120%);
+}
+
+.theme-dark .app::after {
+  opacity: 0.07;
+}
+
+@keyframes lg-drift {
+  0% { transform: translate3d(-1.5%, -1%, 0) scale(1.02) rotate(0deg); }
+  50% { transform: translate3d(1.8%, 1.6%, 0) scale(1.06) rotate(1.6deg); }
+  100% { transform: translate3d(-1%, 2.2%, 0) scale(1.03) rotate(-1.4deg); }
+}
+
+/* ── Floating glass shell ───────────────────────────────────────── */
+
+.app {
+  padding: 10px 10px 0;
+}
+
+[data-testid="flow-toolbar"] {
+  margin: 0;
+  border-radius: 18px;
+  border: 1px solid var(--lg-border);
+  background: var(--lg-pane-strong);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+  box-shadow: var(--lg-highlight), var(--lg-shadow);
+}
+
+.app__content {
+  padding: 10px 0 10px;
+  gap: 10px;
+  background: transparent;
+}
+
+.app__sidebar--left,
+.app__sidebar--right {
+  border: 1px solid var(--lg-border);
+  border-radius: 18px;
+  background: var(--lg-pane);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+  box-shadow: var(--lg-highlight), var(--lg-shadow);
+  overflow: hidden;
+}
+
+.app__main {
+  background: transparent;
+  gap: 10px;
+}
+
+.app__canvas-container {
+  border: 1px solid var(--lg-border);
+  border-radius: 18px;
+  background: var(--lg-pane-soft);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: var(--lg-highlight), var(--lg-shadow-soft);
+  overflow: hidden;
+}
+
+.app__execution-log {
+  margin: 0;
+  border: 1px solid var(--lg-border);
+  border-radius: 16px;
+  background: var(--lg-pane);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  box-shadow: var(--lg-highlight), var(--lg-shadow-soft);
+}
+
+.app__status {
+  margin: 0 0 8px;
+  border: 1px solid var(--lg-border-soft);
+  border-radius: 12px;
+  background: var(--lg-pane-soft);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: var(--lg-highlight);
+}
+
+/* ── Toolbar controls ───────────────────────────────────────────── */
+
+[data-testid="flow-toolbar"] button {
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--vad-color-text-secondary);
+}
+
+[data-testid="flow-toolbar"] button:hover:not(:disabled) {
+  background: var(--lg-pane);
+  border-color: var(--lg-border-soft);
+  color: var(--vad-color-text-primary);
+}
+
+[data-testid="flow-toolbar"] button[class*="flowToolbarBtnPrimary"] {
+  background: linear-gradient(180deg, #5aa5ff 0%, #2f7fe8 100%);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 6px 18px rgba(47, 127, 232, 0.28);
+  color: #fff;
+}
+
+[data-testid="flow-toolbar"] button[class*="flowToolbarBtnPrimary"]:hover:not(:disabled) {
+  background: linear-gradient(180deg, #6fb0ff 0%, #3b8bf0 100%);
+}
+
+[class*="flowToolbarFlowName"] {
+  border: 1px solid var(--lg-border-soft);
+  background: var(--lg-pane-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+/* ── Toolbox: monochrome glass, no candy tiles ─────────────────── */
+
+[data-testid="toolbox"] {
+  background: transparent;
+}
+
+[data-testid="toolbox"] [class*="toolboxHeader"],
+[data-testid="toolbox"] [class*="toolboxSearch"],
+[data-testid="toolbox"] [class*="toolboxFooter"] {
+  background: transparent;
+}
+
+[data-testid="toolbox"] [class*="toolboxSearchInput"] {
+  border: 1px solid var(--lg-border);
+  background: var(--lg-pane-soft);
+  box-shadow: var(--lg-inset), inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  color: var(--vad-color-text-primary);
+}
+
+[data-testid="toolbox"] [role="option"] {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 12px;
+}
+
+[data-testid="toolbox"] [role="option"]:hover,
+[data-testid="toolbox"] [role="option"]:focus-visible {
+  background: var(--lg-pane);
+  border-color: var(--lg-border-soft);
+  box-shadow: var(--lg-highlight);
+}
+
+[data-testid="toolbox"] [data-block-type] > [class*="Icon"],
+body [class*="blockNodeIcon"][data-block-type] {
+  color: var(--vad-color-text-secondary) !important;
+  background: var(--lg-pane-soft) !important;
+  border: 1px solid var(--lg-border-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  border-radius: 9px;
+}
+
+[data-testid="toolbox"] [role="option"]:hover [data-block-type] > [class*="Icon"],
+[data-testid="toolbox"] [role="option"]:hover > [class*="Icon"] {
+  color: var(--vad-color-text-primary) !important;
+  background: var(--lg-pane) !important;
+}
+
+[data-testid="toolbox"] [class*="Label"] {
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+[data-testid="toolbox"] [class*="Description"] {
+  color: var(--vad-color-text-muted);
+}
+
+[data-testid="toolbox"] [class*="Shortcut"] {
+  background: var(--lg-pane-soft);
+  border-color: var(--lg-border-soft);
+  color: var(--vad-color-text-muted);
+}
+
+/* ── Nodes: frosted card with a single hairline accent ─────────── */
+
+body .block-node {
+  border: 1px solid var(--lg-border);
+  border-left-width: 1px !important;
+  border-radius: 16px;
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--vad-color-surface-elevated) 92%, transparent) 0%,
+    color-mix(in srgb, var(--vad-color-surface-elevated) 74%, transparent) 100%
+  );
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 16px 34px rgba(28, 38, 58, 0.10);
+}
+
+.theme-dark body .block-node {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 18px 40px rgba(0, 0, 0, 0.4);
+}
+
+body .block-node:hover {
+  border-color: var(--lg-border);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 22px 44px rgba(28, 38, 58, 0.14);
+}
+
+body .block-node--selected {
+  border-color: color-mix(in srgb, var(--vad-color-primary) 48%, var(--lg-border) 52%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 0 0 3px color-mix(in srgb, var(--vad-color-primary) 14%, transparent),
+    0 20px 40px rgba(28, 38, 58, 0.14);
+}
+
+body .block-node[data-block-type] {
+  border-left: 1px solid var(--lg-border);
+}
+
+body .block-node[data-block-type]::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 0;
+  width: 22px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: color-mix(in srgb, var(--block-accent, var(--vad-color-primary)) 70%, transparent);
+}
+
+body .block-node {
+  position: relative;
+}
+
+body .block-node__header,
+body [class*="blockNodeHeader"] {
+  background: transparent !important;
+  border-bottom: 1px solid var(--lg-border-soft);
+}
+
+body .block-node__type-badge,
+body [class*="blockNodeTypeBadge"] {
+  background: var(--lg-pane-soft);
+  border: 1px solid var(--lg-border-soft);
+  color: var(--vad-color-text-muted);
+}
+
+body [class*="blockNodeEntryBadge"] {
+  background: color-mix(in srgb, var(--vad-color-primary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vad-color-primary) 22%, transparent);
+  color: var(--vad-color-primary);
+}
+
+/* ── Inputs, buttons, cards ─────────────────────────────────────── */
+
+[class*="blockConfigInput"],
+[class*="blockConfigSelect"],
+[class*="blockConfigTextarea"],
+.appDialogInput,
+[data-testid="toolbox"] [class*="toolboxSearchInput"] {
+  border: 1px solid var(--lg-border);
+  background: var(--lg-pane-soft);
+  box-shadow: var(--lg-inset), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  color: var(--vad-color-text-primary);
+}
+
+[class*="blockConfigInput"]:focus,
+[class*="blockConfigSelect"]:focus,
+[class*="blockConfigTextarea"]:focus,
+.appDialogInput:focus {
+  border-color: color-mix(in srgb, var(--vad-color-primary) 55%, var(--lg-border) 45%);
+  box-shadow: var(--lg-focus), var(--lg-inset);
+}
+
+[class*="blockConfigTestBtn"] {
+  border: 1px solid var(--lg-border);
+  background: var(--lg-pane);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  color: var(--vad-color-text-primary);
+}
+
+[class*="blockConfigTestBtn"]:hover:not(:disabled) {
+  background: var(--lg-pane-strong);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), var(--lg-shadow-soft);
+}
+
+[class*="blockConfigModeBtn"] {
+  border: 1px solid var(--lg-border-soft);
+  background: var(--lg-pane-soft);
+  color: var(--vad-color-text-secondary);
+}
+
+[class*="blockConfigModeBtn"][class*="active"] {
+  background: var(--lg-pane-strong);
+  border-color: var(--lg-border);
+  color: var(--vad-color-text-primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+[class*="blockConfigSection"],
+[class*="config-placeholder__hint-box"],
+[class*="flowListModalContent"],
+[class*="confirmDialogContent"],
+[class*="shortcutCheatsheetContent"] {
+  border: 1px solid var(--lg-border);
+  background: var(--lg-pane-strong);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  box-shadow: var(--lg-highlight), var(--lg-shadow);
+}
+
+[class*="flowListModalItem"] {
+  border: 1px solid var(--lg-border-soft);
+  background: var(--lg-pane-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+[class*="flowListModalItemBtn"] {
+  border: 1px solid var(--lg-border-soft);
+  background: var(--lg-pane-soft);
+  color: var(--vad-color-text-secondary);
+}
+
+[class*="flowListModalItemBtn"]:hover:not(:disabled) {
+  background: var(--lg-pane);
+  color: var(--vad-color-text-primary);
+}
+
+[class*="confirmDialogBtn"],
+.confirm-dialog__btn--info {
+  border: 1px solid var(--lg-border);
+  background: var(--lg-pane);
+  color: var(--vad-color-text-primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.confirm-dialog__btn--info {
+  background: linear-gradient(180deg, #5aa5ff, #2f7fe8);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.confirm-dialog__btn--danger {
+  background: color-mix(in srgb, var(--vad-color-error) 14%, transparent);
+  border-color: color-mix(in srgb, var(--vad-color-error) 34%, transparent);
+  color: var(--vad-color-error);
+}
+
+/* ── Bottom panel ───────────────────────────────────────────────── */
+
+.vscode-panel-header {
+  background: transparent;
+  border-bottom: 1px solid var(--lg-border-soft);
+}
+
+.vscode-panel-content,
+[class*="executionLog"] {
+  background: transparent;
+}
+
+[class*="executionLogFilterBtn"] {
+  border: 1px solid var(--lg-border-soft);
+  background: var(--lg-pane-soft);
+  color: var(--vad-color-text-secondary);
+}
+
+[class*="executionLogFilterBtnActive"] {
+  background: var(--lg-pane-strong);
+  border-color: var(--lg-border);
+  color: var(--vad-color-text-primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+[class*="executionLogSearch"] {
+  border: 1px solid var(--lg-border-soft);
+  background: var(--lg-pane-soft);
+  box-shadow: var(--lg-inset);
+}
+
+/* ── Canvas chrome ──────────────────────────────────────────────── */
+
+[class*="flowCanvasHint"] {
+  border: 1px solid var(--lg-border);
+  background: var(--lg-pane-strong);
+  backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: var(--lg-highlight), var(--lg-shadow-soft);
+  color: var(--vad-color-text-secondary);
+}
+
+.react-flow__controls {
+  border: 1px solid var(--lg-border);
+  background: var(--lg-pane-strong);
+  backdrop-filter: blur(18px) saturate(150%);
+  box-shadow: var(--lg-highlight), var(--lg-shadow-soft);
+}
+
+.react-flow__controls-button {
+  border-bottom: 1px solid var(--lg-border-soft);
+  background: transparent;
+  color: var(--vad-color-text-secondary);
+}
+
+.react-flow__controls-button:hover {
+  background: var(--lg-pane);
+  color: var(--vad-color-text-primary);
+}
+
+.react-flow__minimap {
+  border: 1px solid var(--lg-border) !important;
+  border-radius: 14px !important;
+  background: var(--lg-pane-strong) !important;
+  backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: var(--lg-highlight), var(--lg-shadow-soft) !important;
+}
+
+/* ── Toasts ─────────────────────────────────────────────────────── */
+
+[class*="toast"] {
+  border: 1px solid var(--lg-border);
+  background: var(--lg-pane-strong);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: var(--lg-highlight), var(--lg-shadow);
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────────── */
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--vad-color-text-muted) 32%, transparent);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--vad-color-text-muted) 50%, transparent);
+  background-clip: padding-box;
+}
+
+/* ── Reduced motion ─────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .app::before { animation: none; }
+}
+
+/* ── Readability tuning over glass ─────────────────────────────── */
+
+[class*="blockConfig"] {
+  color: var(--vad-color-text-primary);
+}
+
+[class*="blockConfigLabel"] {
+  color: color-mix(in srgb, var(--vad-color-text-secondary) 92%, transparent);
+}
+
+[class*="blockConfigHint"] {
+  color: color-mix(in srgb, var(--vad-color-text-primary) 52%, transparent);
+}
+
+[data-testid="toolbox"] [class*="Description"] {
+  color: color-mix(in srgb, var(--vad-color-text-primary) 58%, transparent);
+}
+
+[class*="executionLogFilterBtn"],
+[class*="executionLogEmpty"],
+[class*="vscode-panel-tab"],
+[class*="flowToolbarExecuteMetaValue"],
+[class*="config-placeholder"] p,
+.app__status,
+.app__status-item {
+  color: var(--vad-color-text-secondary);
+}
+
+[class*="executionLogSearchInput"]::placeholder,
+[data-testid="toolbox"] [class*="toolboxSearchInput"]::placeholder {
+  color: color-mix(in srgb, var(--vad-color-text-muted) 90%, transparent);
+}
+
+[class*="config-placeholder"] h3,
+[class*="blockConfigHeader"] h2,
+[class*="blockConfigHeader"] h3 {
+  color: var(--vad-color-text-primary);
+}
+
+[class*="blockConfigInput"],
+[class*="blockConfigSelect"] {
+  color: var(--vad-color-text-primary);
+}
+
+[class*="blockConfigMetaValue"],
+[class*="blockConfigValue"] {
+  color: var(--vad-color-text-primary);
+}
+
+/* Slightly deeper, less saturated primary surfaces */
+[data-testid="flow-toolbar"] button[class*="flowToolbarBtnPrimary"],
+.confirm-dialog__btn--info {
+  background: linear-gradient(180deg, #4f93e8 0%, #2e6fbd 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 6px 16px rgba(46, 111, 189, 0.24);
+}
+
+[data-testid="flow-toolbar"] button[class*="flowToolbarBtnPrimary"]:hover:not(:disabled) {
+  background: linear-gradient(180deg, #62a3f0 0%, #3478c8 100%);
+}
+
+.vad-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── More pronounced glass depth ───────────────────────────────── */
+
+.app::before {
+  filter: blur(52px) saturate(150%);
+  opacity: 1;
+}
+
+.theme-dark .app::before {
+  filter: blur(60px) saturate(135%);
+  opacity: 0.82;
+}
+
+[data-testid="flow-toolbar"],
+.app__sidebar--left,
+.app__sidebar--right,
+.app__canvas-container,
+.app__execution-log {
+  position: relative;
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.42) 0%,
+    rgba(255, 255, 255, 0.16) 46%,
+    rgba(255, 255, 255, 0.28) 100%
+  );
+}
+
+.theme-dark [data-testid="flow-toolbar"],
+.theme-dark .app__sidebar--left,
+.theme-dark .app__sidebar--right,
+.theme-dark .app__canvas-container,
+.theme-dark .app__execution-log {
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.08) 0%,
+    rgba(255, 255, 255, 0.02) 46%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+}
+
+[data-testid="flow-toolbar"]::before,
+.app__sidebar--left::before,
+.app__sidebar--right::before,
+.app__canvas-container::before,
+.app__execution-log::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 70% at 12% 0%, rgba(255, 255, 255, 0.55), transparent 52%),
+    radial-gradient(90% 50% at 92% 100%, rgba(255, 255, 255, 0.18), transparent 60%);
+  mix-blend-mode: soft-light;
+  opacity: 0.8;
+}
+
+.theme-dark [data-testid="flow-toolbar"]::before,
+.theme-dark .app__sidebar--left::before,
+.theme-dark .app__sidebar--right::before,
+.theme-dark .app__canvas-container::before,
+.theme-dark .app__execution-log::before {
+  background:
+    radial-gradient(120% 70% at 12% 0%, rgba(255, 255, 255, 0.16), transparent 52%),
+    radial-gradient(90% 50% at 92% 100%, rgba(255, 255, 255, 0.05), transparent 60%);
+  opacity: 0.9;
+}
+
+.app__canvas-container {
+  background-color: color-mix(in srgb, #dbe8f8 22%, transparent);
+}
+
+.theme-dark .app__canvas-container {
+  background-color: rgba(10, 14, 22, 0.28);
+}
+
+[class*="blockConfigHeader"] {
+  color: var(--vad-color-text-primary);
+}
+
+[class*="blockConfigHeader"] span,
+[class*="blockConfigHeader"] small {
+  color: var(--vad-color-text-secondary);
+}
+
+/* Modals: deeper frosted pane, transparent headers */
+[class*="flowListModalContent"],
+[class*="confirmDialogContent"],
+[class*="shortcutCheatsheetContent"] {
+  background: var(--lg-pane);
+  backdrop-filter: blur(42px) saturate(175%);
+  -webkit-backdrop-filter: blur(42px) saturate(175%);
+  border: 1px solid var(--lg-border);
+  box-shadow: var(--lg-highlight), var(--lg-shadow);
+}
+
+[class*="flowListModalHeader"],
+[class*="confirmDialogHeader"],
+[class*="shortcutCheatsheetHeader"] {
+  background: transparent;
+  border-bottom: 1px solid var(--lg-border-soft);
+}
+
+[class*="flowListModalItem"] {
+  background: var(--lg-pane-soft);
+  border: 1px solid var(--lg-border-soft);
+}
+
+[class*="flowListModalItemName"] {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+[class*="flowListModalItemMeta"] {
+  background: transparent !important;
+  border: none !important;
+}
+
+.flow-list-modal__btn--primary {
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: linear-gradient(180deg, #4f93e8 0%, #2e6fbd 100%);
+  color: #fff;
+  font-weight: 600;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 6px 16px rgba(46, 111, 189, 0.22);
+}
+
+.flow-list-modal__btn--primary:hover {
+  background: linear-gradient(180deg, #62a3f0 0%, #3478c8 100%);
+}
+
+[class*="flowListModalItemInfo"] {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Onboarding dialog */
+.app__onboarding-card {
+  border: 1px solid var(--lg-border);
+  background: var(--lg-pane-strong);
+  backdrop-filter: blur(44px) saturate(175%);
+  -webkit-backdrop-filter: blur(44px) saturate(175%);
+  box-shadow: var(--lg-highlight), var(--lg-shadow);
+}
+
+.app__onboarding-step {
+  border: 1px solid var(--lg-border-soft);
+  background: var(--lg-pane-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.app__onboarding-btn {
+  border: 1px solid var(--lg-border);
+  background: var(--lg-pane);
+  color: var(--vad-color-text-primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.app__onboarding-btn--secondary {
+  background: transparent;
+  color: var(--vad-color-text-secondary);
+}
+
+.app__onboarding-card .app__onboarding-btn:not(.app__onboarding-btn--secondary) {
+  background: linear-gradient(180deg, #4f93e8 0%, #2e6fbd 100%);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 6px 16px rgba(46, 111, 189, 0.22);
+}

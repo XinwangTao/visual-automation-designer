@@ -3,7 +3,7 @@
  * 显示操作成功/失败/信息提示
  */
 
-import { createContext, useContext, useState, useCallback, useRef, useEffect, ReactNode, useMemo } from 'react';
+import { createContext, useContext, useState, useCallback, useRef, useEffect, ReactNode } from 'react';
 import commonStyles from './common.module.css';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
@@ -97,24 +97,26 @@ interface ToastItemProps {
   onRemove: (id: string) => void;
 }
 
-function ToastItem({ toast, onRemove }: ToastItemProps) {
-  const icon = useMemo(() => {
-    switch (toast.type) {
-      case 'success':
-        return '✅';
-      case 'error':
-        return '❌';
-      case 'warning':
-        return '⚠️';
-      case 'info':
-      default:
-        return 'ℹ️';
-    }
-  }, [toast.type]);
+function ToastGlyph({ type }: { type: ToastMessage['type'] }) {
+  const path =
+    type === 'success'
+      ? 'M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM5.2 8.2l1.9 1.9 3.7-4'
+      : type === 'error'
+        ? 'M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4'
+        : type === 'warning'
+          ? 'M8 2.2 14.4 13H1.6zM8 6v3.4M8 11.2v.2'
+          : 'M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM8 7.2v3.4M8 4.8v.2';
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={path} />
+    </svg>
+  );
+}
 
+function ToastItem({ toast, onRemove }: ToastItemProps) {
   return (
     <div className={`${commonStyles.toast} ${commonStyles[`toast${toast.type.charAt(0).toUpperCase() + toast.type.slice(1)}`]}`} role="status" aria-live="polite">
-      <span className={commonStyles.toastIcon}>{icon}</span>
+      <span className={commonStyles.toastIcon}><ToastGlyph type={toast.type} /></span>
       <span className={commonStyles.toastMessage}>{toast.message}</span>
       <button
         className={commonStyles.toastClose}
