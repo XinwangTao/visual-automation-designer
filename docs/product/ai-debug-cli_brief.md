@@ -136,4 +136,4 @@
 | 单步推进 | `src-tauri/src/core/execution/runner.rs`（`step`） |
 | GUI UIA 配置 | `src/types/block.ts`、`src/components/ConfigPanel/ActionBlockConfig.tsx` |
 
-验证：`cargo test --lib` 337 passed；`cargo test --bins`（见提交记录）；`npm run build`、`npm run lint` 通过；`npm run test` 仅 2 个既有 `App.test.tsx` 前端异常提示用例失败（主干同样失败，非本次回归）。
+验证：`cargo test --lib` 337 passed；`cargo test --bins` 3 passed；`npm run build`、`npm run lint` 通过；`npm run test` 仅 2 个既有 `App.test.tsx` 前端异常提示用例失败（主干同样失败，非本次回归）。实机：受控 WinForms 窗口 UIA 按钮点击成功（回调写标记文件）；置顶窗口覆盖同一控件时 `click-target --uia` 退出码 3 并拒绝点击；MCP `initialize → tools/list → tools/call` 正常。

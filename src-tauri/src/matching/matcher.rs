@@ -442,10 +442,17 @@ impl ImageMatcher {
         }
 
         // Crop the ROI so precomputation (integral image) only covers the
-        // region we actually search.
-        let region_image = haystack.crop_imm(rx, ry, rw, rh);
+        // region we actually search. Full-screen searches borrow the original
+        // image instead of copying it.
+        let full_frame = (rx, ry, rw, rh) == (0, 0, haystack_width, haystack_height);
+        let cropped = if full_frame {
+            None
+        } else {
+            Some(haystack.crop_imm(rx, ry, rw, rh))
+        };
+        let region_image = cropped.as_ref().unwrap_or(haystack);
         let needle_cache = Self::precompute_needle(needle);
-        let (gray, sat) = Self::precompute_haystack(&region_image);
+        let (gray, sat) = Self::precompute_haystack(region_image);
 
         let deadline = Instant::now() + budget;
         let (best_x, best_y, best_score, exhausted) = self.template_match_bounded(

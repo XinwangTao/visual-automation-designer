@@ -27,6 +27,12 @@
 - 执行引擎从 `tauri::AppHandle` 解耦为 `EventSink`，GUI、CLI、MCP 共用同一执行核心。
 - 点击坐标语义统一为虚拟桌面物理像素（可为负），GUI 配置面板新增 UIA 点击模式。
 
+### Verified
+- 实机：`doctor`、`validate`、`run --dry-run`（图片 30.2% 匹配 → 退出码 3 + 截图证据）。
+- 实机：受控 WinForms 窗口 UIA 按钮点击成功（按钮回调写入标记文件）。
+- 实机：置顶窗口覆盖同一控件时 `click-target --uia` 退出码 3，拒绝点击，错误信息指出覆盖窗口。
+- MCP：`initialize → tools/list → tools/call(vad_doctor)` 全链路返回正常。
+
 ---
 
 ## [1.0.1] - 2026-07-11
