@@ -169,6 +169,42 @@ pub(super) fn check_image_references(
                         }
                     }
                 }
+                if let crate::models::block::ClickMode::Uia {
+                    window,
+                    name,
+                    automation_id,
+                    class_name,
+                    control_type,
+                    ..
+                } = mode
+                {
+                    if window.trim().is_empty() {
+                        errors.push(
+                            ValidationError::error(
+                                "UIA_WINDOW_REQUIRED",
+                                "UIA 点击必须填写窗口标题".to_string(),
+                            )
+                            .with_block(block_id.clone()),
+                        );
+                    }
+                    let selector_empty = |value: &Option<String>| {
+                        value.as_deref().map(str::trim).unwrap_or("").is_empty()
+                    };
+                    if selector_empty(name)
+                        && selector_empty(automation_id)
+                        && selector_empty(class_name)
+                        && selector_empty(control_type)
+                    {
+                        errors.push(
+                            ValidationError::error(
+                                "UIA_SELECTOR_REQUIRED",
+                                "UIA 点击至少需要一个选择条件（名称 / AutomationId / 类名 / 控件类型）"
+                                    .to_string(),
+                            )
+                            .with_block(block_id.clone()),
+                        );
+                    }
+                }
             }
             BlockConfig::WaitImage { image_id, .. } => {
                 if let Some(image_id) = image_id {
@@ -577,4 +613,32 @@ mod tests {
         let errors = check_image_references(&validator, &flow);
         assert!(errors.is_empty());
     }
+    #[test]
+    fn uia_click_requires_window_and_selector() {
+        use crate::models::block::{ActionType, BlockNode, BlockPosition, BlockType};
+
+        let validator = FlowValidator::new();
+        let mut flow = Flow::new("uia".to_string());
+        let block = BlockNode::new(
+            BlockType::Action { action: ActionType::Click },
+            BlockPosition::new(0.0, 0.0),
+            BlockConfig::Click {
+                mode: ClickMode::Uia {
+                    window: "Notepad".to_string(),
+                    name: None,
+                    automation_id: None,
+                    class_name: None,
+                    control_type: None,
+                    index: None,
+                    force: None,
+                },
+                count: 1,
+            },
+        );
+        flow.add_block(block);
+
+        let errors = validator.validate(&flow);
+        assert!(errors.iter().any(|e| e.code == "UIA_SELECTOR_REQUIRED"));
+    }
+
 }

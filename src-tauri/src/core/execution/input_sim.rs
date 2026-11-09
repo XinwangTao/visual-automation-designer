@@ -18,9 +18,10 @@ impl Executor {
     ///
     /// Validates: Requirements 8.4 - Exception handling for input operations
     ///
-    /// DPI scaling: Coordinates from user input (ClickMode::Coordinates) are
-    /// logical (CSS) pixels and are scaled with `dpi_scale`. Coordinates from
-    /// image matching and UIA are already physical screen pixels.
+    /// Coordinates are virtual-screen physical pixels in CLI, MCP and GUI.
+    /// `dpi_scale` remains an explicit opt-in legacy correction (`vadctl
+    /// --dpi-scale`); the GUI no longer sets it, so the same flow behaves the
+    /// same everywhere.
     pub(super) async fn execute_click_block(
         &mut self,
         mode: &ClickMode,

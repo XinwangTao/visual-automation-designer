@@ -21,6 +21,13 @@ interface TestResult {
   detail: string;
 }
 
+function thresholdFromInput(value: string): number {
+  if (value.trim() === '') return 0.7;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0.7;
+  return Math.min(1, Math.max(0, parsed));
+}
+
 function describeScore(score: number | undefined, threshold: number): string {
   if (score === undefined) return '';
   return `匹配 ${(score * 100).toFixed(1)}%（阈值 ${(threshold * 100).toFixed(0)}%）`;
@@ -248,7 +255,7 @@ export function ClickConfigUI({ config, onChange }: ConfigUIProps) {
               onChange={(e) =>
                 onChange({
                   ...config,
-                  mode: { ...(mode as { mode: 'image'; imageId?: string }), threshold: Number(e.target.value) },
+                  mode: { ...(mode as { mode: 'image'; imageId?: string }), threshold: thresholdFromInput(e.target.value) },
                 })
               }
               min={0}
@@ -477,7 +484,7 @@ export function WaitImageConfigUI({ config, onChange }: ConfigUIProps) {
           type="number"
           className={styles.blockConfigInput}
           value={threshold}
-          onChange={(e) => onChange({ ...config, threshold: Number(e.target.value) })}
+          onChange={(e) => onChange({ ...config, threshold: thresholdFromInput(e.target.value) })}
           min={0}
           max={1}
           step={0.05}
@@ -607,7 +614,7 @@ export function ScreenshotAssertConfigUI({ config, onChange }: ConfigUIProps) {
           type="number"
           className={styles.blockConfigInput}
           value={threshold}
-          onChange={(e) => onChange({ ...config, threshold: Number(e.target.value) })}
+          onChange={(e) => onChange({ ...config, threshold: thresholdFromInput(e.target.value) })}
           min={0}
           max={1}
           step={0.05}

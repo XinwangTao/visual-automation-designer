@@ -129,6 +129,7 @@ export function BlockConfig({
           type: 'wait_image',
           imageId: localConfig.imageId as string,
           timeoutMs: (localConfig.timeoutMs as number) ?? 5000,
+          threshold: (localConfig.threshold as number) ?? 0.7,
         };
         break;
       case 'wait_time':

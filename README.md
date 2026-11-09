@@ -63,7 +63,19 @@ vadctl step --flow flow.json --index 3         # 只执行前 3 个块
 vadctl find --template ok.png --roi 0,0,800,600
 vadctl uia --window "记事本" --name 编辑 --control-type Edit
 vadctl click-target --uia --window "记事本" --name 确定 --dry-run
+
+# Agent 闭环原语
+vadctl windows                                   # 窗口标题/矩形/pid/前台
+vadctl screenshot --window "记事本" --max-width 1280
+vadctl type --window "记事本" --uia --automation-id 15 --text "hello" --press-enter
+vadctl key --keys "ctrl+s" --window "记事本"
+vadctl scroll --amount -3 --coords 1200,700
+vadctl drag --from 100,100 --to 400,300 --duration-ms 500
+vadctl wait --window "记事本" --timeout-ms 5000
+vadctl wait --uia --window "记事本" --automation-id 15 --timeout-ms 5000
 ```
+
+`docs/AI_AGENT_PLAYBOOK.md` 给出了 Claude Code 用 MCP 完成任意 UI 任务的观察→执行→验证循环、选择器约定与安全规则。
 
 `run`/`step` 的证据目录：`<data-dir>/runs/<timestamp>/`（默认 `%APPDATA%\com.visualautomation.designer`），包含每步截图与 `report.json`：
 

@@ -40,7 +40,7 @@
   - 统一物理像素 + 虚拟桌面坐标系，副屏在左/上时不再回绕到 `(-1,-1)`。
 - 执行核心解耦：`Executor` 的事件发送从 `AppHandle` 抽象为 `EventSink`，CLI/MCP/GUI 共用同一执行核心。
 - 单步语义修正：`step` 命令执行后推进 `current_block`，避免同一块被重复执行（现有 `Executor::step()` 缺陷）。
-- 有界重试：`run`/`step` 支持步骤级重试（默认 2 次），每次重试重新解析目标；UIA 被遮挡不重试、直接报 3。
+- 有界重试：`run` 支持动作块级重试（默认 2 次），每次重试重新解析目标；控制块不重试（避免重放整棵子树）；`step` 不重试。UIA 被遮挡不重试、直接报 3。
 - MCP 薄包装：`vad-mcp` stdio server，工具名 `vad_doctor` / `vad_validate` / `vad_run` / `vad_find` / `vad_uia_find` / `vad_click_target`，内部转调 `vadctl --json`，不重复实现业务逻辑。
 
 ## Out of Scope（首期不做）

@@ -31,7 +31,7 @@ use crate::core::image_library::ImageLibraryManager;
 use crate::error::AppError;
 use crate::matching::{ImageMatcher, MatchConfig, SearchRegion};
 use crate::models::{BlockConfig, BlockNode, ClickMode, Flow, ImageId, ImageMetadata};
-use crate::platform::{InputController, MouseButton, ScreenCapture};
+use crate::platform::{InputController, KeyModifier, MouseButton, ScreenCapture};
 
 const EXIT_OK: i32 = 0;
 const EXIT_USAGE: i32 = 2;
@@ -94,8 +94,16 @@ fn exit_code_for_message(message: &str) -> i32 {
         || m.contains("低于阈值")
     {
         EXIT_TARGET
-    } else if m.contains("assert") || m.contains("expect") || m.contains("timeout") {
-        EXIT_ASSERT
+    } else if m.contains("io error")
+        || m.contains("internal error")
+        || m.contains("platform error")
+        || m.contains("capture")
+        || m.contains("screenshot")
+        || m.contains("failed to initialize")
+        || m.contains("uiautomation")
+        || m.contains("cocreate")
+    {
+        EXIT_RUNTIME
     } else {
         EXIT_ASSERT
     }
@@ -105,6 +113,43 @@ fn exit_code_for_message(message: &str) -> i32 {
 // Argument parsing
 // ============================================================================
 
+const VALUE_FLAGS: &[&str] = &[
+    "flow",
+    "flow-id",
+    "data-dir",
+    "report-dir",
+    "retry",
+    "dpi-scale",
+    "template",
+    "threshold",
+    "budget-ms",
+    "roi",
+    "region",
+    "out",
+    "max-width",
+    "window",
+    "name",
+    "automation-id",
+    "class",
+    "control-type",
+    "index",
+    "max-nodes",
+    "max-depth",
+    "text",
+    "interval-ms",
+    "keys",
+    "amount",
+    "coords",
+    "from",
+    "to",
+    "duration-ms",
+    "button",
+    "count",
+    "timeout-ms",
+    "interval-ms",
+    "ms",
+];
+
 const BOOLEAN_FLAGS: &[&str] = &[
     "json",
     "dry-run",
@@ -113,6 +158,8 @@ const BOOLEAN_FLAGS: &[&str] = &[
     "list-windows",
     "uia",
     "help",
+    "press-enter",
+    "double",
 ];
 
 #[derive(Debug, Default)]
@@ -153,16 +200,37 @@ impl Args {
                     return Err(CliError::usage("empty option name"));
                 }
                 if let Some((name, value)) = rest.split_once('=') {
-                    args.values.insert(name.to_string(), value.to_string());
+                    if BOOLEAN_FLAGS.contains(&name) {
+                        // `--dry-run=true`, `--force=0`, ... must not silently
+                        // fall through to a value option (that would disable a
+                        // safety switch).
+                        match value.trim().to_ascii_lowercase().as_str() {
+                            "1" | "true" | "yes" | "on" => {
+                                args.flags.insert(name.to_string());
+                            }
+                            "0" | "false" | "no" | "off" => {}
+                            other => {
+                                return Err(CliError::usage(format!(
+                                    "option --{name} expects true/false, got {other:?}"
+                                )))
+                            }
+                        }
+                    } else if VALUE_FLAGS.contains(&name) {
+                        args.values.insert(name.to_string(), value.to_string());
+                    } else {
+                        return Err(CliError::usage(format!("unknown option --{name}")));
+                    }
                     continue;
                 }
                 if BOOLEAN_FLAGS.contains(&rest) {
                     args.flags.insert(rest.to_string());
-                } else {
+                } else if VALUE_FLAGS.contains(&rest) {
                     let value = iter.next().ok_or_else(|| {
                         CliError::usage(format!("option --{rest} requires a value"))
                     })?;
                     args.values.insert(rest.to_string(), value);
+                } else {
+                    return Err(CliError::usage(format!("unknown option --{rest}")));
                 }
             } else if token == "-h" {
                 args.flags.insert("help".to_string());
@@ -214,6 +282,13 @@ pub fn run<I: IntoIterator<Item = String>>(argv: I) -> i32 {
         "find" => cmd_find(&args),
         "uia" => cmd_uia(&args),
         "click-target" => cmd_click_target(&args),
+        "windows" => cmd_windows(&args),
+        "screenshot" => cmd_screenshot(&args),
+        "type" => cmd_type(&args),
+        "key" => cmd_key(&args),
+        "scroll" => cmd_scroll(&args),
+        "drag" => cmd_drag(&args),
+        "wait" => cmd_wait(&args),
         "run" => block_on(cmd_run(&args)),
         "step" => block_on(cmd_step(&args)),
         other => Err(CliError::usage(format!(
@@ -258,10 +333,25 @@ COMMANDS:
        | --template FILE
        | --uia --window TITLE [--name X|--automation-id X|--class X|--control-type X]
        [--dry-run] [--force]
+  windows                        List visible top-level windows with rect and pid
+  screenshot [--out FILE]        Capture the virtual desktop and save a PNG
+       [--region x,y,w,h] [--window TITLE] [--max-width N]
+  type --text TEXT               Type text into the foreground window or a target
+       [--window TITLE] [--uia --name X|--automation-id X|...]
+       [--interval-ms N] [--press-enter]
+  key --keys "ctrl+s"            Press a key or chord (ctrl/shift/alt/win + key)
+       [--window TITLE]
+  scroll --amount N              Scroll the mouse wheel (+up / -down)
+       [--coords x,y]
+  wait --window TITLE            Wait until a window appears (timeout-ms)
+       | --uia --window TITLE [selectors]
+       | --ms N
+  drag --from x,y --to x,y       Drag with the left button
+       [--duration-ms N] [--button left|right|middle]
   run --flow FILE                Execute a flow headlessly and write evidence
        [--dry-run] [--retry N] [--report-dir DIR] [--no-screenshots]
        [--dpi-scale F]
-  step --flow FILE --index N     Execute exactly N blocks from the entry
+  step --flow FILE --index N     Execute N blocks from the cursor (control blocks run subtree)
 
 GLOBAL:
   --json                         (all commands already print JSON)
@@ -774,16 +864,10 @@ fn cmd_click_target(args: &Args) -> Result<i32, CliError> {
             };
             let node = if dry_run {
                 uia::find(window, &selector)
-                    .map_err(CliError::runtime)?
+                    .map_err(map_uia_error)?
                     .ok_or_else(|| CliError::target("UIA control not found"))?
             } else {
-                uia::prepare_click(window, &selector, force).map_err(|e| {
-                    if e.contains("遮挡") || e.contains("未找到") {
-                        CliError::target(e)
-                    } else {
-                        CliError::runtime(e)
-                    }
-                })?
+                uia::prepare_click(window, &selector, force).map_err(map_uia_error)?
             };
             let (x, y) = (node.cx(), node.cy());
             let evidence = BlockEvidence {
@@ -799,11 +883,26 @@ fn cmd_click_target(args: &Args) -> Result<i32, CliError> {
         ));
     };
 
+    let button = parse_button(args.value("button"))?;
+    let count = args
+        .value("count")
+        .map(|v| v.parse::<u32>().map_err(|_| CliError::usage("invalid --count")))
+        .transpose()?
+        .unwrap_or(1)
+        .max(1);
+    let double = args.flag("double");
+
     let clicked = if dry_run {
         false
     } else {
         let mut input = InputController::new()?;
-        input.click_at(x, y, MouseButton::Left)?;
+        for _ in 0..count {
+            if double {
+                input.double_click_at(x, y, button)?;
+            } else {
+                input.click_at(x, y, button)?;
+            }
+        }
         true
     };
 
@@ -815,6 +914,9 @@ fn cmd_click_target(args: &Args) -> Result<i32, CliError> {
             "dryRun": dry_run,
             "target": target,
             "point": {"x": x, "y": y},
+            "button": args.value("button").unwrap_or("left"),
+            "count": count,
+            "double": double,
             "evidence": evidence,
         }))
     );
@@ -940,7 +1042,7 @@ impl CliSink {
         if !self.screenshots {
             return None;
         }
-        let capture = ScreenCapture::new().capture_screen().ok()?;
+        let capture = ScreenCapture::capture_virtual_desktop().ok()?;
         let file_name = format!(
             "{:02}_{}.png",
             index,
@@ -981,7 +1083,18 @@ impl CliSink {
             error,
         };
         if let Ok(mut steps) = self.steps.lock() {
-            steps.push(report);
+            // Retries emit a second event for the same block. Replace the
+            // previous attempt so `ok` reflects the final state; loop
+            // iterations (attempt stays 1) still append as distinct steps.
+            let is_retry_of_last = steps
+                .last()
+                .map(|last| last.block_id == report.block_id && report.attempts > last.attempts)
+                .unwrap_or(false);
+            if is_retry_of_last {
+                *steps.last_mut().expect("checked above") = report;
+            } else {
+                steps.push(report);
+            }
         }
     }
 
@@ -1054,6 +1167,419 @@ fn status_name(status: ExecutionStatus) -> &'static str {
 // ============================================================================
 // run / step
 // ============================================================================
+
+// ============================================================================
+// Observe / act primitives for agent-driven automation
+// ============================================================================
+
+fn cmd_windows(args: &Args) -> Result<i32, CliError> {
+    let _ = args;
+    #[cfg(not(windows))]
+    {
+        let _ = args;
+        return Err(CliError::runtime("window listing is only available on Windows"));
+    }
+
+    #[cfg(windows)]
+    {
+        let windows = crate::platform::uia::list_windows();
+        let foreground = windows
+            .iter()
+            .find(|w| w.foreground)
+            .map(|w| w.title.clone());
+        println!(
+            "{}",
+            pretty(&json!({
+                "ok": true,
+                "foreground": foreground,
+                "count": windows.len(),
+                "windows": windows,
+            }))
+        );
+        Ok(EXIT_OK)
+    }
+}
+
+fn map_uia_error(error: String) -> CliError {
+    if error.contains("selector") {
+        CliError::usage(error)
+    } else if error.contains("遮挡") || error.contains("未找到") || error.contains("禁用") {
+        CliError::target(error)
+    } else {
+        CliError::runtime(error)
+    }
+}
+
+fn parse_button(value: Option<&str>) -> Result<MouseButton, CliError> {
+    match value.unwrap_or("left").to_ascii_lowercase().as_str() {
+        "left" | "l" => Ok(MouseButton::Left),
+        "right" | "r" => Ok(MouseButton::Right),
+        "middle" | "m" => Ok(MouseButton::Middle),
+        other => Err(CliError::usage(format!(
+            "unknown mouse button {other:?}; use left/right/middle"
+        ))),
+    }
+}
+
+fn cmd_screenshot(args: &Args) -> Result<i32, CliError> {
+    let capture = if let Some(window) = args.value("window") {
+        #[cfg(windows)]
+        {
+            let (x, y, w, h) = crate::platform::uia::window_rect(window)
+                .map_err(CliError::target)?;
+            ScreenCapture::capture_virtual_region(x, y, w.max(1) as u32, h.max(1) as u32)
+                .map_err(|e| CliError::runtime(format!("capture failed: {e}")))?
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = window;
+            return Err(CliError::runtime("window capture is only available on Windows"));
+        }
+    } else if let Some(roi) = args.value("roi").or_else(|| args.value("region")) {
+        let (x, y, w, h) = parse_roi(roi)?;
+        ScreenCapture::capture_virtual_region(x, y, w.max(1), h.max(1))
+            .map_err(|e| CliError::runtime(format!("capture failed: {e}")))?
+    } else {
+        ScreenCapture::capture_virtual_desktop()
+            .map_err(|e| CliError::runtime(format!("capture failed: {e}")))?
+    };
+
+    let mut image = capture.image;
+    let mut scaled = false;
+    if let Some(max_width) = args.value("max-width") {
+        let max_width = max_width
+            .parse::<u32>()
+            .map_err(|_| CliError::usage("invalid --max-width"))?
+            .max(1);
+        if image.width() > max_width {
+            let height =
+                (image.height() as u64 * max_width as u64 / image.width() as u64) as u32;
+            image = image.resize(
+                max_width,
+                height.max(1),
+                image::imageops::FilterType::Triangle,
+            );
+            scaled = true;
+        }
+    }
+
+    let out_path = if let Some(out) = args.value("out") {
+        PathBuf::from(out)
+    } else {
+        let dir = data_dir(args).join("screenshots");
+        fs::create_dir_all(&dir)?;
+        dir.join(format!(
+            "shot_{}.png",
+            Local::now().format("%Y%m%d_%H%M%S_%3f")
+        ))
+    };
+    if let Some(parent) = out_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    image
+        .save(&out_path)
+        .map_err(|e| CliError::runtime(format!("cannot save screenshot: {e}")))?;
+
+    println!(
+        "{}",
+        pretty(&json!({
+            "ok": true,
+            "path": out_path.to_string_lossy(),
+            "width": image.width(),
+            "height": image.height(),
+            "originX": capture.origin_x,
+            "originY": capture.origin_y,
+            "scaled": scaled,
+        }))
+    );
+    Ok(EXIT_OK)
+}
+
+#[cfg(windows)]
+fn uia_selector_from_args(args: &Args) -> crate::platform::uia::UiaSelector {
+    crate::platform::uia::UiaSelector {
+        name: args.value("name").map(str::to_string),
+        automation_id: args.value("automation-id").map(str::to_string),
+        class_name: args.value("class").map(str::to_string),
+        control_type: args.value("control-type").map(str::to_string),
+        index: args.value("index").and_then(|v| v.parse::<usize>().ok()),
+    }
+}
+
+fn cmd_type(args: &Args) -> Result<i32, CliError> {
+    let text = args.require("text")?;
+    let interval = args
+        .value("interval-ms")
+        .map(|v| v.parse::<u64>().map_err(|_| CliError::usage("invalid --interval-ms")))
+        .transpose()?
+        .unwrap_or(10);
+
+    let mut focused = false;
+    if args.flag("uia") {
+        #[cfg(not(windows))]
+        {
+            return Err(CliError::runtime("UIA targets are only supported on Windows"));
+        }
+        #[cfg(windows)]
+        {
+            let window = args.require("window")?;
+            let selector = uia_selector_from_args(args);
+            let node = crate::platform::uia::prepare_click(window, &selector, args.flag("force"))
+                .map_err(map_uia_error)?;
+            let mut input = InputController::new()?;
+            input.click_at(node.cx(), node.cy(), MouseButton::Left)?;
+            std::thread::sleep(Duration::from_millis(120));
+            focused = true;
+        }
+    } else if let Some(window) = args.value("window") {
+        #[cfg(windows)]
+        {
+            crate::platform::uia::raise_window(window).map_err(CliError::target)?;
+            std::thread::sleep(Duration::from_millis(120));
+            focused = true;
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = window;
+        }
+    }
+
+    let mut input = InputController::new()?;
+    input.type_text_with_interval(text, interval)?;
+    if args.flag("press-enter") {
+        input.key_press("enter")?;
+    }
+
+    println!(
+        "{}",
+        pretty(&json!({
+            "ok": true,
+            "typed": text.chars().count(),
+            "intervalMs": interval,
+            "focusedTarget": focused,
+            "pressedEnter": args.flag("press-enter"),
+        }))
+    );
+    Ok(EXIT_OK)
+}
+
+fn parse_key_chord(chord: &str) -> (Vec<KeyModifier>, String) {
+    let parts: Vec<&str> = chord
+        .split('+')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect();
+    let mut modifiers = Vec::new();
+    let mut key = String::new();
+    for (index, part) in parts.iter().enumerate() {
+        let lower = part.to_ascii_lowercase();
+        let modifier = match lower.as_str() {
+            "ctrl" | "control" => Some(KeyModifier::Ctrl),
+            "shift" => Some(KeyModifier::Shift),
+            "alt" => Some(KeyModifier::Alt),
+            "win" | "meta" | "super" | "cmd" => Some(KeyModifier::Meta),
+            _ => None,
+        };
+        if let Some(modifier) = modifier {
+            if index == parts.len() - 1 {
+                key = lower;
+            } else {
+                modifiers.push(modifier);
+            }
+        } else {
+            key = part.to_string();
+        }
+    }
+    (modifiers, key)
+}
+
+fn cmd_key(args: &Args) -> Result<i32, CliError> {
+    let chord = args.require("keys")?;
+    if let Some(window) = args.value("window") {
+        #[cfg(windows)]
+        {
+            crate::platform::uia::raise_window(window).map_err(CliError::target)?;
+            std::thread::sleep(Duration::from_millis(120));
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = window;
+        }
+    }
+
+    let (modifiers, key) = parse_key_chord(chord);
+    let mut input = InputController::new()?;
+    if modifiers.is_empty() {
+        input.key_press(&key)?;
+    } else {
+        input.key_combination(&modifiers, &key)?;
+    }
+
+    println!(
+        "{}",
+        pretty(&json!({
+            "ok": true,
+            "keys": chord,
+            "modifiers": modifiers.len(),
+            "key": key,
+        }))
+    );
+    Ok(EXIT_OK)
+}
+
+fn cmd_scroll(args: &Args) -> Result<i32, CliError> {
+    let amount = args
+        .require("amount")?
+        .parse::<i32>()
+        .map_err(|_| CliError::usage("invalid --amount"))?;
+    let mut input = InputController::new()?;
+    if let Some(coords) = args.value("coords") {
+        let (x, y) = parse_pair::<i32>(coords, "coords")?;
+        input.move_to(x, y)?;
+    }
+    input.scroll(amount)?;
+    println!("{}", pretty(&json!({"ok": true, "amount": amount})));
+    Ok(EXIT_OK)
+}
+
+fn cmd_drag(args: &Args) -> Result<i32, CliError> {
+    let (from_x, from_y) = parse_pair::<i32>(args.require("from")?, "from")?;
+    let (to_x, to_y) = parse_pair::<i32>(args.require("to")?, "to")?;
+    let duration = args
+        .value("duration-ms")
+        .map(|v| v.parse::<u64>().map_err(|_| CliError::usage("invalid --duration-ms")))
+        .transpose()?
+        .unwrap_or(400);
+    let button = parse_button(args.value("button"))?;
+    let mut input = InputController::new()?;
+    input.drag(from_x, from_y, to_x, to_y, duration, button)?;
+    println!(
+        "{}",
+        pretty(&json!({
+            "ok": true,
+            "from": {"x": from_x, "y": from_y},
+            "to": {"x": to_x, "y": to_y},
+            "durationMs": duration,
+        }))
+    );
+    Ok(EXIT_OK)
+}
+
+fn cmd_wait(args: &Args) -> Result<i32, CliError> {
+    let timeout_ms = args
+        .value("timeout-ms")
+        .map(|v| v.parse::<u64>().map_err(|_| CliError::usage("invalid --timeout-ms")))
+        .transpose()?
+        .unwrap_or(10_000);
+    let interval_ms = args
+        .value("interval-ms")
+        .map(|v| v.parse::<u64>().map_err(|_| CliError::usage("invalid --interval-ms")))
+        .transpose()?
+        .unwrap_or(200)
+        .max(20);
+    let started = Instant::now();
+
+    if let Some(ms) = args.value("ms") {
+        let ms = ms
+            .parse::<u64>()
+            .map_err(|_| CliError::usage("invalid --ms"))?;
+        std::thread::sleep(Duration::from_millis(ms));
+        println!(
+            "{}",
+            pretty(&json!({"ok": true, "waitedMs": started.elapsed().as_millis() as u64}))
+        );
+        return Ok(EXIT_OK);
+    }
+
+    if args.flag("uia") {
+        #[cfg(not(windows))]
+        {
+            return Err(CliError::runtime("UIA targets are only supported on Windows"));
+        }
+        #[cfg(windows)]
+        {
+            let window = args.require("window")?;
+            let selector = uia_selector_from_args(args);
+            loop {
+                match crate::platform::uia::find(window, &selector) {
+                    Ok(Some(node)) => {
+                        println!(
+                            "{}",
+                            pretty(&json!({
+                                "ok": true,
+                                "found": true,
+                                "waitedMs": started.elapsed().as_millis() as u64,
+                                "node": node,
+                            }))
+                        );
+                        return Ok(EXIT_OK);
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        return Err(map_uia_error(error));
+                    }
+                }
+                if started.elapsed().as_millis() as u64 >= timeout_ms {
+                    println!(
+                        "{}",
+                        pretty(&json!({
+                            "ok": false,
+                            "found": false,
+                            "waitedMs": started.elapsed().as_millis() as u64,
+                            "error": format!("UIA control not found within {timeout_ms}ms"),
+                        }))
+                    );
+                    return Ok(EXIT_TARGET);
+                }
+                std::thread::sleep(Duration::from_millis(interval_ms));
+            }
+        }
+    }
+
+    if let Some(window) = args.value("window") {
+        #[cfg(windows)]
+        {
+            loop {
+                if crate::platform::uia::window_exists(window) {
+                    let rect = crate::platform::uia::window_rect(window).ok();
+                    println!(
+                        "{}",
+                        pretty(&json!({
+                            "ok": true,
+                            "found": true,
+                            "waitedMs": started.elapsed().as_millis() as u64,
+                            "window": window,
+                            "rect": rect.map(|(x, y, w, h)| json!({"x": x, "y": y, "width": w, "height": h})),
+                        }))
+                    );
+                    return Ok(EXIT_OK);
+                }
+                if started.elapsed().as_millis() as u64 >= timeout_ms {
+                    println!(
+                        "{}",
+                        pretty(&json!({
+                            "ok": false,
+                            "found": false,
+                            "waitedMs": started.elapsed().as_millis() as u64,
+                            "error": format!("window {window:?} not found within {timeout_ms}ms"),
+                        }))
+                    );
+                    return Ok(EXIT_TARGET);
+                }
+                std::thread::sleep(Duration::from_millis(interval_ms));
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = window;
+            return Err(CliError::runtime("window wait is only available on Windows"));
+        }
+    }
+
+    Err(CliError::usage("wait needs --window, --uia or --ms"))
+}
 
 fn build_executor(
     args: &Args,
@@ -1291,6 +1817,27 @@ mod tests {
     }
 
     #[test]
+    fn boolean_equals_form_is_parsed_not_swallowed() {
+        let args = parse(&["click-target", "--coords", "1,2", "--dry-run=true"]);
+        assert!(args.flag("dry-run"));
+
+        let args = parse(&["click-target", "--coords", "1,2", "--dry-run=false"]);
+        assert!(!args.flag("dry-run"));
+
+        let mut argv = vec!["vadctl".to_string(), "click-target".to_string(), "--dry-run=maybe".to_string()];
+        let err = Args::parse(argv.drain(..).skip(1)).unwrap_err();
+        assert_eq!(err.code, EXIT_USAGE);
+    }
+
+    #[test]
+    fn unknown_options_are_rejected() {
+        let mut argv = vec!["vadctl".to_string(), "run".to_string(), "--typo".to_string(), "x".to_string()];
+        let err = Args::parse(argv.drain(..).skip(1)).unwrap_err();
+        assert_eq!(err.code, EXIT_USAGE);
+        assert!(err.message.contains("unknown option"));
+    }
+
+    #[test]
     fn parses_negative_pair() {
         let (x, y) = parse_pair::<i32>("-1920,80", "coords").unwrap();
         assert_eq!((x, y), (-1920, 80));
@@ -1307,6 +1854,49 @@ mod tests {
         assert_eq!(exit_code_for_message("image not found on screen"), EXIT_TARGET);
         assert_eq!(exit_code_for_message("UIA 控件被遮挡"), EXIT_TARGET);
         assert_eq!(exit_code_for_message("assertion failed"), EXIT_ASSERT);
+    }
+
+    #[test]
+    fn parses_key_chords() {
+        let (mods, key) = parse_key_chord("ctrl+shift+s");
+        assert_eq!(mods, vec![KeyModifier::Ctrl, KeyModifier::Shift]);
+        assert_eq!(key, "s");
+
+        let (mods, key) = parse_key_chord("Enter");
+        assert!(mods.is_empty());
+        assert_eq!(key, "Enter");
+
+        let (mods, key) = parse_key_chord("alt+f4");
+        assert_eq!(mods, vec![KeyModifier::Alt]);
+        assert_eq!(key, "f4");
+    }
+
+    #[test]
+    fn parses_mouse_buttons() {
+        assert_eq!(parse_button(Some("right")).unwrap(), MouseButton::Right);
+        assert_eq!(parse_button(None).unwrap(), MouseButton::Left);
+        assert_eq!(parse_button(Some("nope")).unwrap_err().code, EXIT_USAGE);
+    }
+
+    #[test]
+    fn retry_replaces_previous_attempt_in_report() {
+        let sink = CliSink::new(PathBuf::from("."), HashMap::new(), false);
+        sink.record("block-1", false, 1, 10, None, Some("first attempt failed".into()));
+        sink.record("block-1", true, 2, 25, None, None);
+
+        let steps = sink.steps();
+        assert_eq!(steps.len(), 1, "retry must not create a second step");
+        assert!(steps[0].ok);
+        assert_eq!(steps[0].attempts, 2);
+        assert!(steps[0].error.is_none());
+    }
+
+    #[test]
+    fn repeated_loop_iterations_stay_separate_steps() {
+        let sink = CliSink::new(PathBuf::from("."), HashMap::new(), false);
+        sink.record("loop-body", true, 1, 10, None, None);
+        sink.record("loop-body", true, 1, 12, None, None);
+        assert_eq!(sink.steps().len(), 2);
     }
 
     #[test]

@@ -196,6 +196,38 @@ impl InputController {
         Ok(())
     }
 
+    /// Drag from one point to another with linear interpolation.
+    ///
+    /// Holds the mouse button down for `duration_ms`, moving in small steps so
+    /// drag-and-drop UIs observe intermediate positions.
+    pub fn drag(
+        &mut self,
+        from_x: i32,
+        from_y: i32,
+        to_x: i32,
+        to_y: i32,
+        duration_ms: u64,
+        button: MouseButton,
+    ) -> Result<()> {
+        self.move_to(from_x, from_y)?;
+        thread::sleep(Duration::from_millis(40));
+        self.mouse_down(button)?;
+        let steps = (duration_ms / 16).max(4).min(120);
+        for step in 1..=steps {
+            let t = step as f64 / steps as f64;
+            let x = from_x as f64 + (to_x - from_x) as f64 * t;
+            let y = from_y as f64 + (to_y - from_y) as f64 * t;
+            self.enigo
+                .move_mouse(x.round() as i32, y.round() as i32, Coordinate::Abs)
+                .map_err(|e| {
+                    AppError::ExecutionFailed(format!("Failed to drag mouse: {:?}", e))
+                })?;
+            thread::sleep(Duration::from_millis((duration_ms / steps).max(1)));
+        }
+        thread::sleep(Duration::from_millis(40));
+        self.mouse_up(button)
+    }
+
     // ========================================================================
     // Keyboard Operations
     // ========================================================================

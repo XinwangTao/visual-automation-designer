@@ -13,6 +13,9 @@
 - **UI Refresh**：新增 `styles/ui-refresh.css` 最终视觉层——紧凑工具栏与 SVG 图标、工具箱列表化、节点卡片缩小到 236px、配置面板统一输入/按钮、底部面板折叠清理、弹窗与流程列表重排、亮/暗主题统一。
 - **液态玻璃背景**：缓慢漂移的彩色光场 + 磨砂工具栏/侧栏/日志/弹窗（backdrop-filter），并提供 `prefers-reduced-motion` 降级。
 - **GUI 试跑**：工具栏新增「试跑」按钮与 `dry_run_flow` 命令，按真实控制流解析目标但不点击、不输入、不提窗、不等待，返回每步证据。
+- **Agent 闭环原语**：`vadctl windows`（窗口+矩形+pid）、`screenshot`（全屏/区域/窗口，可缩放）、`type`、`key`、`scroll`、`drag`、`wait`（窗口/控件/纯等待）；点击支持左右键/双击/次数。
+- **MCP 14 工具**：新增 `vad_windows` / `vad_screenshot` / `vad_type` / `vad_key` / `vad_scroll` / `vad_drag` / `vad_wait`；`vad_screenshot` 直接返回 image content，Claude 可在对话里直接看图。
+- **`docs/AI_AGENT_PLAYBOOK.md`**：Claude Code 完成任意 UI 自动化的观察→执行→验证循环、选择器语义与安全规则。
 
 - **`vadctl` 无头调试入口**（`src-tauri/src/bin/vadctl.rs` + `src-tauri/src/cli/`）：
   `doctor` / `validate` / `list` / `get` / `find` / `uia` / `click-target` / `run` / `step`，统一 JSON 输出与退出码 `0/2/3/4/5`。

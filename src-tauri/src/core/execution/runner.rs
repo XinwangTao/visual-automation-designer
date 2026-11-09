@@ -16,7 +16,7 @@ use tokio::sync::{Mutex, watch};
 use tokio::time::sleep;
 
 use crate::error::{AppError, Result};
-use crate::models::{BlockId, Flow, ImageId, ImageMetadata};
+use crate::models::{BlockId, BlockType, Flow, ImageId, ImageMetadata};
 use crate::matching::{CachedImageMatcher, MatchCacheConfig};
 
 use super::context::ExecutionContext;
@@ -541,8 +541,13 @@ impl Executor {
             }
 
             // Bounded retry: each attempt re-resolves targets and re-runs the
-            // block. A blocked/occluded UIA click fails fast and is retried
-            // only after the configured limit, mirroring headless tooling.
+            // block. Only action blocks are retried — replaying a control
+            // block would re-run its whole subtree (and duplicate side
+            // effects in loops).
+            let retryable = matches!(
+                self.flow.get_block(&block_id).map(|block| &block.block_type),
+                Some(BlockType::Action { .. })
+            );
             let mut attempt: u32 = 1;
             loop {
                 self.current_attempt = attempt;
@@ -556,7 +561,7 @@ impl Executor {
                                 current_block = next;
                                 break;
                             }
-                            Err(e) if attempt <= self.retry_limit => {
+                            Err(e) if retryable && attempt <= self.retry_limit => {
                                 log::warn!(
                                     "Block {} failed (attempt {}/{}): {}",
                                     block_id,
@@ -577,7 +582,7 @@ impl Executor {
                             }
                         }
                     }
-                    Err(e) if attempt <= self.retry_limit => {
+                    Err(e) if retryable && attempt <= self.retry_limit => {
                         log::warn!(
                             "Block {} errored (attempt {}/{}): {} ({}ms)",
                             block_id,

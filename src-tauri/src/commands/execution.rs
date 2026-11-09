@@ -136,14 +136,9 @@ pub async fn execute_flow(
     );
     executor.set_image_library(image_library);
 
-    // Query real DPI scale factor for coordinate correction.
-    // Uses primary monitor (index 0) scale factor by default.
-    if let Ok(monitors) = ScreenCapture::list_monitors_with_tauri(&execution_state.app_handle) {
-        if let Some(primary) = monitors.first() {
-            executor.set_dpi_scale(primary.scale_factor);
-        }
-    }
-    
+    // Coordinates are virtual-screen physical pixels everywhere (CLI, MCP,
+    // GUI). Do not apply a host scale factor here: it made the GUI disagree
+    // with `vadctl` on 125%/150% displays.
     // Clear any interactive executor before starting a background run.
     {
         let mut exec_guard = execution_state.executor.lock().await;
@@ -263,13 +258,6 @@ pub async fn step_execution(
     );
         executor.set_image_library(image_library);
 
-        // Query real DPI scale factor for coordinate correction
-        if let Ok(monitors) = ScreenCapture::list_monitors_with_tauri(&execution_state.app_handle) {
-            if let Some(primary) = monitors.first() {
-                executor.set_dpi_scale(primary.scale_factor);
-            }
-        }
-        
         // Store executor
         let mut exec_guard = execution_state.executor.lock().await;
         *exec_guard = Some(executor);
@@ -589,12 +577,6 @@ pub async fn dry_run_flow(
     executor.set_image_library(image_library);
     executor.set_dry_run(true);
     executor.set_retry_limit(0);
-
-    if let Ok(monitors) = ScreenCapture::list_monitors_with_tauri(&execution_state.app_handle) {
-        if let Some(primary) = monitors.first() {
-            executor.set_dpi_scale(primary.scale_factor);
-        }
-    }
 
     let result = executor.start().await;
     let status = executor.status().await;

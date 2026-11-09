@@ -159,7 +159,7 @@ fn control_type_name(id: i32) -> &'static str {
 
 unsafe extern "system" fn enum_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
     let out = &mut *(lparam.0 as *mut Vec<HWND>);
-    if IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() {
+    if IsWindowVisible(hwnd).as_bool() {
         out.push(hwnd);
     }
     BOOL(1)
@@ -197,6 +197,64 @@ pub fn find_window(title: &str) -> Result<HWND, String> {
         }
     }
     Err(format!("未找到窗口: {title}"))
+}
+
+/// A visible top-level window with its screen rectangle.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowInfo {
+    pub title: String,
+    pub pid: u32,
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+    pub minimized: bool,
+    pub foreground: bool,
+}
+
+/// Enumerate visible top-level windows with process id and screen rect.
+pub fn list_windows() -> Vec<WindowInfo> {
+    let mut out = Vec::new();
+    unsafe {
+        let _ = EnumWindows(
+            Some(enum_window_info),
+            LPARAM(&mut out as *mut Vec<WindowInfo> as isize),
+        );
+    }
+
+    out
+}
+
+unsafe extern "system" fn enum_window_info(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId,
+    };
+
+    if !IsWindowVisible(hwnd).as_bool() {
+        return BOOL(1);
+    }
+    let title = window_title(hwnd);
+    if title.is_empty() {
+        return BOOL(1);
+    }
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    let mut rect = RECT::default();
+    let has_rect = unsafe { GetWindowRect(hwnd, &mut rect) }.is_ok();
+    let fg = unsafe { GetForegroundWindow() };
+    let out = &mut *(lparam.0 as *mut Vec<WindowInfo>);
+    out.push(WindowInfo {
+        title,
+        pid,
+        x: if has_rect { rect.left } else { 0 },
+        y: if has_rect { rect.top } else { 0 },
+        w: if has_rect { rect.right - rect.left } else { 0 },
+        h: if has_rect { rect.bottom - rect.top } else { 0 },
+        minimized: unsafe { IsIconic(hwnd) }.as_bool(),
+        foreground: fg == hwnd,
+    });
+    BOOL(1)
 }
 
 /// List visible top-level window titles (for `vadctl doctor` / diagnostics).
@@ -338,6 +396,11 @@ pub fn dump(
 
 /// Find the first control matching `selector`.
 pub fn find(window: &str, selector: &UiaSelector) -> Result<Option<UiaNode>, String> {
+    if selector.is_empty() {
+        return Err(
+            "UIA selector is empty: provide name / automation-id / class / control-type".into(),
+        );
+    }
     let nodes = dump(window, 400, 12, Some(selector.clone()))?;
     Ok(nodes.into_iter().next())
 }
@@ -431,6 +494,12 @@ pub fn prepare_click(
     raise_window(window)?;
     let node = find(window, selector)?
         .ok_or_else(|| format!("未找到 UIA 控件: window={window:?} selector={selector:?}"))?;
+    if !node.enabled {
+        return Err(format!(
+            "UIA 控件已禁用: {} \"{}\"",
+            node.control_type_name, node.name
+        ));
+    }
     let (cx, cy) = (node.cx(), node.cy());
     if !force {
         if let Some(occluder) = occluder_at(window, cx, cy)? {

@@ -8,10 +8,14 @@
 //! Supported methods: initialize, notifications/initialized, ping,
 //! tools/list, tools/call, shutdown.
 
+use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
-use std::process::Command;
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
+use base64::Engine as _;
 use serde_json::{json, Value};
 
 const SERVER_NAME: &str = "vad-mcp";
@@ -201,6 +205,102 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "vad_windows",
+            "description": "List visible top-level windows with title, pid, screen rect, minimized and foreground flags.",
+            "inputSchema": {"type": "object", "properties": {}}
+        }),
+        json!({
+            "name": "vad_screenshot",
+            "description": "Capture the virtual desktop, a region or a window and return the PNG as an image plus a file path. Default maxWidth 1280 keeps the image small for vision.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "out": {"type": "string"},
+                    "region": {"type": "string", "description": "x,y,w,h in virtual-screen pixels"},
+                    "window": {"type": "string"},
+                    "maxWidth": {"type": "integer"},
+                    "dataDir": {"type": "string"}
+                }
+            }
+        }),
+        json!({
+            "name": "vad_type",
+            "description": "Type text into the foreground window, or focus a UIA control/window first. Optionally press Enter.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "window": {"type": "string"},
+                    "uia": {"type": "boolean"},
+                    "name": {"type": "string"},
+                    "automationId": {"type": "string"},
+                    "class": {"type": "string"},
+                    "controlType": {"type": "string"},
+                    "index": {"type": "integer"},
+                    "intervalMs": {"type": "integer"},
+                    "pressEnter": {"type": "boolean"}
+                },
+                "required": ["text"]
+            }
+        }),
+        json!({
+            "name": "vad_key",
+            "description": "Press a key or chord, e.g. Enter, ctrl+s, alt+f4. Optionally raise a window first.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keys": {"type": "string"},
+                    "window": {"type": "string"}
+                },
+                "required": ["keys"]
+            }
+        }),
+        json!({
+            "name": "vad_scroll",
+            "description": "Scroll the mouse wheel (positive up, negative down). Optionally move to a point first.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "amount": {"type": "integer"},
+                    "coords": {"type": "string", "description": "x,y"}
+                },
+                "required": ["amount"]
+            }
+        }),
+        json!({
+            "name": "vad_wait",
+            "description": "Wait until a window or UIA control appears, or simply sleep. Returns the node/rect and waitedMs.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "window": {"type": "string"},
+                    "uia": {"type": "boolean"},
+                    "name": {"type": "string"},
+                    "automationId": {"type": "string"},
+                    "class": {"type": "string"},
+                    "controlType": {"type": "string"},
+                    "index": {"type": "integer"},
+                    "timeoutMs": {"type": "integer"},
+                    "intervalMs": {"type": "integer"},
+                    "ms": {"type": "integer"}
+                }
+            }
+        }),
+        json!({
+            "name": "vad_drag",
+            "description": "Drag with the mouse from one point to another.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "from": {"type": "string", "description": "x,y"},
+                    "to": {"type": "string", "description": "x,y"},
+                    "durationMs": {"type": "integer"},
+                    "button": {"type": "string", "enum": ["left", "right", "middle"]}
+                },
+                "required": ["from", "to"]
+            }
+        }),
+        json!({
             "name": "vad_list",
             "description": "List stored flows or image library entries.",
             "inputSchema": {
@@ -235,13 +335,35 @@ fn handle_tool_call(id: Value, params: &Value) -> Value {
     };
 
     match run_vadctl(&cli_args) {
-        Ok((text, success)) => success_response(
-            id,
-            json!({
-                "content": [{"type": "text", "text": text}],
-                "isError": !success,
-            }),
-        ),
+        Ok((stdout, stderr, success)) => {
+            let mut content = vec![json!({"type": "text", "text": stdout})];
+            if !stderr.trim().is_empty() {
+                content.push(json!({"type": "text", "text": format!("stderr: {stderr}")}));
+            }
+            // Screenshots are returned as vision-ready image blocks, in
+            // addition to the saved file path in the JSON text.
+            if success && name == "vad_screenshot" {
+                if let Ok(parsed) = serde_json::from_str::<Value>(&stdout) {
+                    if let Some(path) = parsed.get("path").and_then(Value::as_str) {
+                        if let Ok(bytes) = fs::read(path) {
+                            let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+                            content.push(json!({
+                                "type": "image",
+                                "data": encoded,
+                                "mimeType": "image/png",
+                            }));
+                        }
+                    }
+                }
+            }
+            success_response(
+                id,
+                json!({
+                    "content": content,
+                    "isError": !success,
+                }),
+            )
+        }
         Err(error) => success_response(
             id,
             json!({
@@ -257,7 +379,15 @@ fn get_str(args: &Value, key: &str) -> Option<String> {
 }
 
 fn get_bool(args: &Value, key: &str) -> bool {
-    args.get(key).and_then(Value::as_bool).unwrap_or(false)
+    match args.get(key) {
+        Some(Value::Bool(value)) => *value,
+        Some(Value::Number(value)) => value.as_f64().unwrap_or(0.0) != 0.0,
+        Some(Value::String(value)) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        _ => false,
+    }
 }
 
 fn get_int(args: &Value, key: &str) -> Option<i64> {
@@ -397,6 +527,109 @@ fn build_args(tool: &str, args: &Value) -> Result<Vec<String>, String> {
                 out.push("--force".into());
             }
         }
+        "vad_windows" => {
+            out.push("windows".into());
+        }
+        "vad_screenshot" => {
+            out.push("screenshot".into());
+            if let Some(path) = get_str(args, "out") {
+                out.extend(["--out".into(), path]);
+            }
+            if let Some(region) = get_str(args, "region") {
+                out.extend(["--region".into(), region]);
+            }
+            if let Some(window) = get_str(args, "window") {
+                out.extend(["--window".into(), window]);
+            }
+            let max_width = get_int(args, "maxWidth").unwrap_or(1280);
+            out.extend(["--max-width".into(), max_width.to_string()]);
+            push_common(args, &mut out);
+        }
+        "vad_type" => {
+            let text = get_str(args, "text").ok_or("missing required argument: text")?;
+            out.extend(["type".into(), "--text".into(), text]);
+            if let Some(window) = get_str(args, "window") {
+                out.extend(["--window".into(), window]);
+            }
+            if get_bool(args, "uia") {
+                out.push("--uia".into());
+            }
+            if let Some(interval) = get_int(args, "intervalMs") {
+                out.extend(["--interval-ms".into(), interval.to_string()]);
+            }
+            if get_bool(args, "pressEnter") {
+                out.push("--press-enter".into());
+            }
+            for (key, flag) in [
+                ("name", "--name"),
+                ("automationId", "--automation-id"),
+                ("class", "--class"),
+                ("controlType", "--control-type"),
+            ] {
+                if let Some(value) = get_str(args, key) {
+                    out.extend([flag.into(), value]);
+                }
+            }
+            if let Some(index) = get_int(args, "index") {
+                out.extend(["--index".into(), index.to_string()]);
+            }
+        }
+        "vad_key" => {
+            let keys = get_str(args, "keys").ok_or("missing required argument: keys")?;
+            out.extend(["key".into(), "--keys".into(), keys]);
+            if let Some(window) = get_str(args, "window") {
+                out.extend(["--window".into(), window]);
+            }
+        }
+        "vad_scroll" => {
+            let amount = get_int(args, "amount").ok_or("missing required argument: amount")?;
+            out.extend(["scroll".into(), "--amount".into(), amount.to_string()]);
+            if let Some(coords) = get_str(args, "coords") {
+                out.extend(["--coords".into(), coords]);
+            }
+        }
+        "vad_wait" => {
+            out.push("wait".into());
+            if let Some(window) = get_str(args, "window") {
+                out.extend(["--window".into(), window]);
+            }
+            if get_bool(args, "uia") {
+                out.push("--uia".into());
+            }
+            for (key, flag) in [
+                ("name", "--name"),
+                ("automationId", "--automation-id"),
+                ("class", "--class"),
+                ("controlType", "--control-type"),
+            ] {
+                if let Some(value) = get_str(args, key) {
+                    out.extend([flag.into(), value]);
+                }
+            }
+            if let Some(index) = get_int(args, "index") {
+                out.extend(["--index".into(), index.to_string()]);
+            }
+            if let Some(timeout) = get_int(args, "timeoutMs") {
+                out.extend(["--timeout-ms".into(), timeout.to_string()]);
+            }
+            if let Some(interval) = get_int(args, "intervalMs") {
+                out.extend(["--interval-ms".into(), interval.to_string()]);
+            }
+            if let Some(ms) = get_int(args, "ms") {
+                out.extend(["--ms".into(), ms.to_string()]);
+            }
+        }
+        "vad_drag" => {
+            let from = get_str(args, "from").ok_or("missing required argument: from")?;
+            let to = get_str(args, "to").ok_or("missing required argument: to")?;
+            out.extend(["drag".into(), "--from".into(), from, "--to".into(), to]);
+            if let Some(duration) = get_int(args, "durationMs") {
+                out.extend(["--duration-ms".into(), duration.to_string()]);
+            }
+            if let Some(button) = get_str(args, "button") {
+                out.extend(["--button".into(), button]);
+            }
+        }
         "vad_list" => {
             let kind = get_str(args, "kind").unwrap_or_else(|| "flows".to_string());
             out.extend(["list".into(), kind]);
@@ -423,9 +656,13 @@ fn vadctl_path() -> PathBuf {
     PathBuf::from(if cfg!(windows) { "vadctl.exe" } else { "vadctl" })
 }
 
-fn run_vadctl(args: &[String]) -> Result<(String, bool), String> {
+fn run_vadctl(args: &[String]) -> Result<(String, String, bool), String> {
     let mut command = Command::new(vadctl_path());
-    command.args(args);
+    command
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     #[cfg(windows)]
     {
@@ -434,21 +671,53 @@ fn run_vadctl(args: &[String]) -> Result<(String, bool), String> {
         command.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = command
-        .output()
-        .map_err(|e| format!("failed to launch vadctl: {e}. Build it with `cargo build --bins` or set VADCTL_PATH."))?;
+    let mut child = command.spawn().map_err(|e| {
+        format!("failed to launch vadctl: {e}. Build it with `cargo build --bins` or set VADCTL_PATH.")
+    })?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let mut text = stdout;
-    if !stderr.trim().is_empty() {
-        if !text.trim().is_empty() {
-            text.push('\n');
+    let mut stdout_pipe = child.stdout.take().ok_or("no stdout pipe")?;
+    let mut stderr_pipe = child.stderr.take().ok_or("no stderr pipe")?;
+    let stdout_reader = std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = stdout_pipe.read_to_end(&mut buffer);
+        buffer
+    });
+    let stderr_reader = std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = stderr_pipe.read_to_end(&mut buffer);
+        buffer
+    });
+
+    let timeout_secs = std::env::var("VAD_MCP_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(120);
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    let status = loop {
+        match child.try_wait().map_err(|e| format!("wait failed: {e}"))? {
+            Some(status) => break status,
+            None if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
+                return Ok((
+                    format!(
+                        "{{\"ok\":false,\"error\":\"vadctl timed out after {timeout_secs}s\",\"exitCode\":5}}"
+                    ),
+                    String::new(),
+                    false,
+                ));
+            }
+            None => std::thread::sleep(Duration::from_millis(50)),
         }
-        text.push_str(stderr.trim_end());
-    }
-    Ok((text, output.status.success()))
+    };
+
+    let stdout = String::from_utf8_lossy(&stdout_reader.join().unwrap_or_default()).to_string();
+    let stderr = String::from_utf8_lossy(&stderr_reader.join().unwrap_or_default()).to_string();
+    Ok((stdout, stderr, status.success()))
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -462,6 +731,16 @@ mod tests {
         assert!(built.contains(&"--flow".to_string()));
         assert!(built.contains(&"--dry-run".to_string()));
         assert!(built.contains(&"1".to_string()));
+    }
+
+    #[test]
+    fn boolean_arguments_accept_common_truthy_forms() {
+        assert!(get_bool(&json!({"dryRun": true}), "dryRun"));
+        assert!(get_bool(&json!({"dryRun": "true"}), "dryRun"));
+        assert!(get_bool(&json!({"dryRun": 1}), "dryRun"));
+        assert!(!get_bool(&json!({"dryRun": "false"}), "dryRun"));
+        assert!(!get_bool(&json!({"dryRun": 0}), "dryRun"));
+        assert!(!get_bool(&json!({}), "dryRun"));
     }
 
     #[test]
