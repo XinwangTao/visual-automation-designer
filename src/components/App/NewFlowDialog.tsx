@@ -18,7 +18,6 @@ export function NewFlowDialog({ isOpen, value, onChange, onCancel, onConfirm }: 
     <div className="confirm-dialog" onClick={onCancel} role="dialog" aria-modal="true">
       <div className={commonStyles.confirmDialogContent} onClick={(e) => e.stopPropagation()}>
         <div className={commonStyles.confirmDialogHeader}>
-          <span className={commonStyles.confirmDialogIcon}>📋</span>
           <h3 className={commonStyles.confirmDialogTitle}>新建流程</h3>
         </div>
         <div className="app__dialog-body">

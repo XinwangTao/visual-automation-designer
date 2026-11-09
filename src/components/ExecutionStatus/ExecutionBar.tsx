@@ -29,17 +29,6 @@ const STATUS_LABELS: Record<ExecutionStatusType, string> = {
   error: '出错',
 };
 
-// UX优化: 使用更直观的emoji图标
-const STATUS_EMOJIS: Record<ExecutionStatusType, string> = {
-  idle: '⚪',
-  running: '🔵',
-  paused: '🟡',
-  completed: '🟢',
-  stopped: '⏹️',
-  validation_blocked: '🚫',
-  error: '🔴',
-};
-
 /**
  * ExecutionBar Component - Execution Status Bar
  * Shows execution status with visual indicator and progress bar
@@ -85,7 +74,6 @@ export function ExecutionBar({
           className={styles.executionBarIndicator} 
           aria-hidden="true"
         >
-          {STATUS_EMOJIS[status]}
         </span>
         <span className={styles.executionBarLabel}>
           {STATUS_LABELS[status]}

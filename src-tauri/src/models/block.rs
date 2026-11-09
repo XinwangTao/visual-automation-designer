@@ -100,6 +100,9 @@ pub enum ClickMode {
     Image {
         #[serde(alias = "image_id")]
         image_id: Option<crate::models::image::ImageId>,
+        /// Matching accuracy threshold (0.0~1.0). Default: 0.7
+        #[serde(default, alias = "threshold")]
+        threshold: Option<f64>,
     },
     /// Click a Windows UI Automation control.
     ///
@@ -305,6 +308,28 @@ mod tests {
         // The JSON should be: {"type":"action","action":"click"}
         assert!(json.contains("action"), "JSON should contain 'action': {}", json);
         assert!(json.contains("click"), "JSON should contain 'click': {}", json);
+    }
+
+    #[test]
+    fn click_image_threshold_roundtrip() {
+        let mode = ClickMode::Image {
+            image_id: None,
+            threshold: Some(0.82),
+        };
+        let json = serde_json::to_string(&mode).unwrap();
+        assert!(json.contains("\"threshold\""));
+        let back: ClickMode = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, mode);
+    }
+
+    #[test]
+    fn click_image_threshold_is_optional_for_old_flows() {
+        let back: ClickMode =
+            serde_json::from_str(r#"{"mode":"image","imageId":null}"#).unwrap();
+        assert_eq!(
+            back,
+            ClickMode::Image { image_id: None, threshold: None }
+        );
     }
 
     #[test]

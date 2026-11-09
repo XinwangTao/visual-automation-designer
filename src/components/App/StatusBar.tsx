@@ -73,17 +73,17 @@ export function StatusBar({
       </div>
 
       <div className="app__status-cluster app__status-cluster--meta">
-        <span className="app__status-item app__status-item--stats">🧩 {nodesCount} 积木块</span>
-        <span className="app__status-item app__status-item--stats">🔗 {edgesCount} 连接</span>
-        {flowName && <span className="app__status-item app__status-item--flow">📋 {flowName}</span>}
-        {placementLabel && <span className="app__status-item app__status-item--placement">📍 放置中: {placementLabel}</span>}
+        <span className="app__status-item app__status-item--stats">{nodesCount} 积木块</span>
+        <span className="app__status-item app__status-item--stats">{edgesCount} 连接</span>
+        {flowName && <span className="app__status-item app__status-item--flow">{flowName}</span>}
+        {placementLabel && <span className="app__status-item app__status-item--placement">放置中: {placementLabel}</span>}
         {flowName && !loading && (
           <span className={`app__status-item ${styles.appStatusItemAutosave} ${isDirty ? styles.appStatusItemDirty : styles.appStatusItemClean}`}>
             {saveStatusLabel}
           </span>
         )}
-        {loading && <span className="app__status-item app__status-item--loading">⏳ 加载中...</span>}
-        {flowError && <span className="app__status-item app__status-item--error">⚠️ {flowError.message}</span>}
+        {loading && <span className="app__status-item app__status-item--loading">加载中...</span>}
+        {flowError && <span className="app__status-item app__status-item--error">{flowError.message}</span>}
         {!flowError && validationMessage && (
           (primaryFlowValidationError?.blockId || primaryFlowValidationWarning?.blockId) && onFocusNode ? (
             <button
@@ -92,12 +92,12 @@ export function StatusBar({
               title={`定位到积木块 ${primaryFlowValidationError?.blockId ?? primaryFlowValidationWarning?.blockId ?? ''}`}
               type="button"
             >
-              ⚠️ {validationMessage}
+              {validationMessage}
               {validationSummary ? `（${validationSummary}）` : ''}
             </button>
           ) : (
             <span className={validationClassName}>
-              ⚠️ {validationMessage}
+              {validationMessage}
               {validationSummary ? `（${validationSummary}）` : ''}
             </span>
           )

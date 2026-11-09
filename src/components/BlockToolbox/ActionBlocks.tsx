@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react';
+import { BlockGlyph } from '../common';
 import styles from './BlockToolbox.module.css';
 
 export type ActionType = 'click' | 'wait_image' | 'wait_time' | 'input_text' | 'screenshot_assert' | 'text_extract';
@@ -19,12 +20,12 @@ export interface ActionBlockItem {
 }
 
 const ACTION_BLOCKS: ActionBlockItem[] = [
-  { type: 'click', label: '点击', icon: '🖱️', description: '模拟鼠标点击', shortcut: 'C' },
-  { type: 'wait_image', label: '等待图片', icon: '🖼️', description: '等待指定图片出现', shortcut: 'W' },
+  { type: 'click', label: '点击', icon: '🖱️', description: '鼠标点击', shortcut: 'C' },
+  { type: 'wait_image', label: '等待图片', icon: '🖼️', description: '等待图片出现', shortcut: 'W' },
   { type: 'wait_time', label: '等待时间', icon: '⏱️', description: '等待指定时间', shortcut: 'T' },
   { type: 'input_text', label: '输入文本', icon: '⌨️', description: '模拟键盘输入', shortcut: 'I' },
-  { type: 'screenshot_assert', label: '截图断言', icon: '📸', description: '截图后与参考图比对', shortcut: 'S' },
-  { type: 'text_extract', label: '文本提取', icon: '👁️', description: '从屏幕区域提取文字', shortcut: 'X' },
+  { type: 'screenshot_assert', label: '截图断言', icon: '📸', description: '截图比对', shortcut: 'S' },
+  { type: 'text_extract', label: '文本提取', icon: '👁️', description: '提取屏幕文字', shortcut: 'X' },
 ];
 
 export interface ActionBlocksProps {
@@ -86,6 +87,7 @@ export function ActionBlocks({ onSelect, onArmPlacement, searchQuery = '' }: Act
           key={block.type}
           className={`${styles.actionBlocksItem} ${draggingType === block.type ? 'action-blocks__item--dragging' : ''}`}
           role="option"
+          data-block-type={block.type}
           aria-label={`${block.label}：${block.description}`}
           tabIndex={0}
           draggable
@@ -104,7 +106,7 @@ export function ActionBlocks({ onSelect, onArmPlacement, searchQuery = '' }: Act
           data-testid={`action-block-${block.type}`}
           title={block.description}
         >
-          <span className={styles.actionBlocksIcon}>{block.icon}</span>
+          <span className={styles.actionBlocksIcon}><BlockGlyph type={block.type} size={15} /></span>
           <div className={styles.actionBlocksText}>
             <span className={styles.actionBlocksLabel}>{block.label}</span>
             <span className={styles.actionBlocksDescription}>{block.description}</span>

@@ -43,7 +43,7 @@ export interface BlockPosition {
  */
 export type ClickMode =
   | { mode: 'coordinates'; x: number; y: number }
-  | { mode: 'image'; imageId?: string }
+  | { mode: 'image'; imageId?: string; threshold?: number }
   | {
       mode: 'uia';
       window: string;
@@ -73,6 +73,7 @@ export type BlockConfig =
       type: 'wait_image';
       imageId?: string;
       timeoutMs?: number;
+      threshold?: number;
     }
   | {
       type: 'wait_time';

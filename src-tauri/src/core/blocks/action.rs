@@ -46,7 +46,7 @@ impl ClickBlock {
         Self {
             id: BlockId::new(),
             position,
-            mode: ClickMode::Image { image_id: Some(image_id) },
+            mode: ClickMode::Image { image_id: Some(image_id), threshold: None },
             count: count.max(1),
         }
     }
@@ -62,7 +62,7 @@ impl ClickBlock {
     /// Get image ID (if in image mode)
     pub fn image_id(&self) -> Option<&ImageId> {
         match &self.mode {
-            ClickMode::Image { image_id } => image_id.as_ref(),
+            ClickMode::Image { image_id, .. } => image_id.as_ref(),
             ClickMode::Coordinates { .. } | ClickMode::Uia { .. } => None,
         }
     }

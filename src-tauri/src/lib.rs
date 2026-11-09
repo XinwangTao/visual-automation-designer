@@ -183,6 +183,9 @@ pub fn run() {
             commands::resume_execution,
             commands::get_execution_status,
             commands::runtime_self_check,
+            // Read-only target resolution for the config panel
+            commands::test_image_target,
+            commands::test_uia_target,
         ])
         .run(tauri::generate_context!());
 

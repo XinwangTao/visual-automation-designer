@@ -30,6 +30,50 @@ export interface FlowToolbarProps {
   onHelp?: () => void;
 }
 
+
+type ToolbarIconName =
+  | 'plus' | 'save' | 'folder' | 'undo' | 'redo'
+  | 'play' | 'pause' | 'stop' | 'step'
+  | 'sun' | 'moon' | 'auto' | 'help';
+
+const TOOLBAR_ICON_PATHS: Record<ToolbarIconName, string> = {
+  plus: 'M8 3v10M3 8h10',
+  save: 'M3 2.5h8l2 2V13.5H3zM5 2.5v4h6v-4M5 13.5v-4.2h6v4.2',
+  folder: 'M2 4.5h4l1.2 2H14v7H2z',
+  undo: 'M6 3.5 2.5 7 6 10.5M2.5 7h7a4 4 0 0 1 0 8H7',
+  redo: 'M10 3.5 13.5 7 10 10.5M13.5 7h-7a4 4 0 0 0 0 8H9',
+  play: 'M5.5 3.5 12.5 8l-7 4.5z',
+  pause: 'M5.5 3.5v9M10.5 3.5v9',
+  stop: 'M4.5 4.5h7v7h-7z',
+  step: 'M4.5 3.5 10 8l-5.5 4.5zM12 3.5v9',
+  sun: 'M8 5.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6zM8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1',
+  moon: 'M13 9.6A5.6 5.6 0 0 1 6.4 3a5.6 5.6 0 1 0 6.6 6.6z',
+  auto: 'M3 8a5 5 0 0 1 8.6-3.5M13 8a5 5 0 0 1-8.6 3.5M11.4 2.6v2.2H9.2M4.6 13.4v-2.2h2.2',
+  help: 'M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM6.2 6.4A1.9 1.9 0 0 1 8 5.2c1 0 1.8.8 1.8 1.8 0 1.4-1.8 1.5-1.8 2.8M8 11.6v.2',
+};
+
+const FILLED_ICONS = new Set<ToolbarIconName>(['play', 'stop']);
+
+function ToolbarIcon({ name }: { name: ToolbarIconName }) {
+  const filled = FILLED_ICONS.has(name);
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      focusable="false"
+      fill={filled ? 'currentColor' : 'none'}
+      stroke={filled ? 'none' : 'currentColor'}
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d={TOOLBAR_ICON_PATHS[name]} />
+    </svg>
+  );
+}
+
 /**
  * FlowToolbar 组件 - 流程编辑工具栏
  * 提供流程控制、执行和文件操作按钮
@@ -61,9 +105,9 @@ export const FlowToolbar = memo(function FlowToolbar({
 
   const themeInfo = useMemo(() => {
     switch (themeMode) {
-      case 'light': return { icon: '☀️', title: '当前: 亮色主题 (点击切换)' };
-      case 'dark': return { icon: '🌙', title: '当前: 暗色主题 (点击切换)' };
-      case 'auto': return { icon: '🔄', title: '当前: 跟随系统 (点击切换)' };
+      case 'light': return { icon: 'sun' as const, title: '当前: 亮色主题 (点击切换)' };
+      case 'dark': return { icon: 'moon' as const, title: '当前: 暗色主题 (点击切换)' };
+      case 'auto': return { icon: 'auto' as const, title: '当前: 跟随系统 (点击切换)' };
     }
   }, [themeMode]);
 
@@ -73,7 +117,7 @@ export const FlowToolbar = memo(function FlowToolbar({
       {flowName && (
         <div className={styles.flowToolbarFlowName} title={flowName}>
           <span className={styles.flowToolbarFlowNameLabel}>当前流程</span>
-          <span className={styles.flowToolbarFlowNameValue}>📁 {flowName}</span>
+          <span className={styles.flowToolbarFlowNameValue}>{flowName}</span>
         </div>
       )}
       
@@ -88,7 +132,7 @@ export const FlowToolbar = memo(function FlowToolbar({
           type="button"
           aria-label="新建流程"
         >
-          ➕ 新建
+          <ToolbarIcon name="plus" /> 新建
         </button>
         <button
           className={styles.flowToolbarBtn}
@@ -99,7 +143,7 @@ export const FlowToolbar = memo(function FlowToolbar({
           type="button"
           aria-label="保存流程"
         >
-          💾 保存
+          <ToolbarIcon name="save" /> 保存
         </button>
         <button
           className={styles.flowToolbarBtn}
@@ -109,7 +153,7 @@ export const FlowToolbar = memo(function FlowToolbar({
           type="button"
           aria-label="打开流程"
         >
-          📂 打开
+          <ToolbarIcon name="folder" /> 打开
         </button>
       </div>
 
@@ -125,7 +169,7 @@ export const FlowToolbar = memo(function FlowToolbar({
           aria-label="撤销"
           aria-disabled={!canUndo}
         >
-          ↩️ 撤销
+          <ToolbarIcon name="undo" /> 撤销
         </button>
         <button
           className={styles.flowToolbarBtn}
@@ -137,7 +181,7 @@ export const FlowToolbar = memo(function FlowToolbar({
           aria-label="重做"
           aria-disabled={!canRedo}
         >
-          ↪️ 重做
+          <ToolbarIcon name="redo" /> 重做
         </button>
       </div>
 
@@ -158,7 +202,7 @@ export const FlowToolbar = memo(function FlowToolbar({
             type="button"
             aria-label="执行流程"
           >
-            ▶️ 执行
+            <ToolbarIcon name="play" /> 执行
           </button>
         ) : (
           // Pause/Resume and Stop buttons (shown when executing)
@@ -172,7 +216,7 @@ export const FlowToolbar = memo(function FlowToolbar({
               aria-label={isPaused ? '继续执行' : '暂停执行'}
               aria-pressed={isPaused}
             >
-              {isPaused ? '▶️ 继续' : '⏸️ 暂停'}
+              {isPaused ? <><ToolbarIcon name="play" /> 继续</> : <><ToolbarIcon name="pause" /> 暂停</>}
             </button>
             <button
               className={`${styles.flowToolbarBtn} ${styles.flowToolbarBtnDanger}`}
@@ -182,7 +226,7 @@ export const FlowToolbar = memo(function FlowToolbar({
               type="button"
               aria-label="停止执行"
             >
-              ⏹️ 停止
+              <ToolbarIcon name="stop" /> 停止
             </button>
           </>
         )}
@@ -198,7 +242,7 @@ export const FlowToolbar = memo(function FlowToolbar({
           aria-label="单步执行"
           aria-disabled={!hasFlow || (isExecuting && !isPaused)}
         >
-          ⏭️ 单步
+          <ToolbarIcon name="step" /> 单步
         </button>
       </div>
 
@@ -213,7 +257,7 @@ export const FlowToolbar = memo(function FlowToolbar({
           type="button"
           aria-label="切换主题"
         >
-          {themeInfo.icon}
+          <ToolbarIcon name={themeInfo.icon} />
         </button>
         <button
           className={`${styles.flowToolbarBtn} ${styles.flowToolbarBtnHelp}`}
@@ -223,7 +267,7 @@ export const FlowToolbar = memo(function FlowToolbar({
           type="button"
           aria-label="帮助"
         >
-          ❓
+          <ToolbarIcon name="help" />
         </button>
       </div>
     </div>

@@ -156,7 +156,7 @@ pub(super) fn check_image_references(
     for (block_id, block) in &flow.blocks {
         match &block.config {
             BlockConfig::Click { mode, .. } => {
-                if let crate::models::block::ClickMode::Image { image_id } = mode {
+                if let crate::models::block::ClickMode::Image { image_id, .. } = mode {
                     if let Some(image_id) = image_id {
                         if image_id.0.is_nil() {
                             errors.push(
@@ -459,6 +459,7 @@ mod tests {
             BlockConfig::Click {
                 mode: ClickMode::Image {
                     image_id: Some(crate::models::image::ImageId(uuid::Uuid::nil())),
+                    threshold: None,
                 },
                 count: 1,
             },
@@ -529,6 +530,7 @@ mod tests {
             BlockConfig::Click {
                 mode: ClickMode::Image {
                     image_id: Some(crate::models::image::ImageId::new()),
+                    threshold: None,
                 },
                 count: 1,
             },
@@ -549,7 +551,7 @@ mod tests {
             },
             crate::models::block::BlockPosition::new(0.0, 0.0),
             BlockConfig::Click {
-                mode: ClickMode::Image { image_id: None },
+                mode: ClickMode::Image { image_id: None, threshold: None },
                 count: 1,
             },
         );

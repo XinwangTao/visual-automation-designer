@@ -310,3 +310,69 @@ interface ValidationError {
 }
 
 type ValidationWarning = ValidationError;
+
+// ============================================================================
+// 目标测试（只读解析，不点击）
+// ============================================================================
+
+export interface TargetPoint {
+  x: number;
+  y: number;
+}
+
+export interface TargetRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ImageTargetTest {
+  found: boolean;
+  score?: number;
+  threshold: number;
+  center?: TargetPoint;
+  hitRect?: TargetRect;
+  elapsedMs: number;
+  target: string;
+  error?: string;
+}
+
+export interface UiaNodeInfo {
+  name: string;
+  automationId: string;
+  className: string;
+  controlType: number;
+  controlTypeName: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  enabled: boolean;
+  offscreen: boolean;
+  depth: number;
+}
+
+export interface UiaTargetTest {
+  found: boolean;
+  node?: UiaNodeInfo;
+  occludedBy?: string;
+  error?: string;
+}
+
+/** 只读解析图片目标：截取虚拟桌面并做模板匹配。 */
+export async function testImageTarget(imageId: string, threshold?: number): Promise<ImageTargetTest> {
+  return invoke<ImageTargetTest>('test_image_target', { imageId, threshold });
+}
+
+/** 只读解析 UIA 控件：不提升窗口、不点击。 */
+export async function testUiaTarget(params: {
+  window: string;
+  name?: string;
+  automationId?: string;
+  className?: string;
+  controlType?: string;
+  index?: number;
+}): Promise<UiaTargetTest> {
+  return invoke<UiaTargetTest>('test_uia_target', params);
+}

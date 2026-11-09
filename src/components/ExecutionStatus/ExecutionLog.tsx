@@ -157,7 +157,6 @@ export function ExecutionLog({
             onClick={() => setFilter(type)}
             data-testid={`filter-${type}`}
           >
-            {type === 'all' ? '📊' : LOG_TYPE_ICONS[type]} 
             {type === 'all' ? '全部' : type === 'info' ? '信息' : type === 'success' ? '成功' : type === 'error' ? '错误' : '警告'}
             <span className={styles.executionLogFilterCount}>{counts[type]}</span>
           </button>
@@ -168,7 +167,7 @@ export function ExecutionLog({
       <div className={styles.executionLogSearch}>
         <input
           type="text"
-          placeholder="🔍 搜索日志..."
+          placeholder="搜索日志..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className={styles.executionLogSearchInput}

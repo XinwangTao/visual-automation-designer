@@ -912,22 +912,29 @@ export function AppShell() {
             />
           ) : (
             <div className="config-placeholder">
-              <div className="config-placeholder__icon">🔧</div>
+              <div className="config-placeholder__icon">
+                <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                  <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />
+                  <circle cx="5" cy="4.5" r="1.6" fill="var(--vad-color-surface-elevated)" />
+                  <circle cx="10.5" cy="8" r="1.6" fill="var(--vad-color-surface-elevated)" />
+                  <circle cx="6.5" cy="11.5" r="1.6" fill="var(--vad-color-surface-elevated)" />
+                </svg>
+              </div>
               <h3>积木块配置</h3>
               <p>点击积木块进行配置</p>
               {!flow && (
                 <div className="config-placeholder__hint-box">
-                  <p className="config-placeholder__hint-title">💡 快速开始</p>
+                  <p className="config-placeholder__hint-title">快速开始</p>
                   <p className="config-placeholder__hint">1. 点击"新建"创建流程</p>
                   <p className="config-placeholder__hint">2. 从左侧拖动积木块到画布</p>
                   <p className="config-placeholder__hint">3. 点击积木块配置参数</p>
                   <p className="config-placeholder__hint">4. 点击"执行"运行流程</p>
                   <div className="config-placeholder__actions">
-                    <button className="config-placeholder__action-btn" type="button" onClick={() => void createQuickFlow()}>
-                      ➕ 立即创建流程
+                    <button className="config-placeholder__action-btn" type="button" aria-label="➕ 立即创建流程" onClick={() => void createQuickFlow()}>
+                      立即创建流程
                     </button>
                     <button className="config-placeholder__action-btn config-placeholder__action-btn--secondary" type="button" onClick={() => handleToolboxSelect('click', 'action')}>
-                      ⚡ 直接放一个点击积木块
+                      直接放一个点击积木块
                     </button>
                   </div>
                 </div>

@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react';
+import { BlockGlyph } from '../common';
 import styles from './BlockToolbox.module.css';
 
 export type ControlType = 'loop' | 'loop_infinite' | 'condition' | 'text_check';
@@ -19,9 +20,9 @@ export interface ControlBlockItem {
 }
 
 const CONTROL_BLOCKS: ControlBlockItem[] = [
-  { type: 'loop', label: '循环', icon: '🔁', description: '重复执行指定次数', shortcut: 'L' },
+  { type: 'loop', label: '循环', icon: '🔁', description: '重复指定次数', shortcut: 'L' },
   { type: 'loop_infinite', label: '无限循环', icon: '♾️', description: '无限重复执行', shortcut: 'U' },
-  { type: 'condition', label: '条件判断', icon: '❓', description: '根据条件分支执行', shortcut: 'F' },
+  { type: 'condition', label: '条件判断', icon: '❓', description: '条件分支', shortcut: 'F' },
   { type: 'text_check', label: '文本检查', icon: '🔤', description: '检查屏幕是否含指定文字', shortcut: 'K' },
 ];
 
@@ -84,6 +85,7 @@ export function ControlBlocks({ onSelect, onArmPlacement, searchQuery = '' }: Co
           key={block.type}
           className={`${styles.controlBlocksItem} ${draggingType === block.type ? 'control-blocks__item--dragging' : ''}`}
           role="option"
+          data-block-type={block.type}
           aria-label={`${block.label}：${block.description}`}
           tabIndex={0}
           draggable
@@ -102,7 +104,7 @@ export function ControlBlocks({ onSelect, onArmPlacement, searchQuery = '' }: Co
           data-testid={`control-block-${block.type}`}
           title={block.description}
         >
-          <span className={styles.controlBlocksIcon}>{block.icon}</span>
+          <span className={styles.controlBlocksIcon}><BlockGlyph type={block.type} size={15} /></span>
           <div className={styles.controlBlocksText}>
             <span className={styles.controlBlocksLabel}>{block.label}</span>
             <span className={styles.controlBlocksDescription}>{block.description}</span>

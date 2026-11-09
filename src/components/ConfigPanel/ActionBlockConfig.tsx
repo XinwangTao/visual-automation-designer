@@ -3,13 +3,27 @@
  * 从 BlockConfig.tsx 提取：click / wait_image / wait_time / input_text / screenshot_assert / text_extract 的配置 UI。
  */
 
+import { useState } from 'react';
 import type { ClickMode } from '../../types/block';
+import { testImageTarget, testUiaTarget } from '../../tauri/commands';
 import { ImageSelector } from './ImageSelector';
 import styles from './ConfigPanel.module.css';
 
 interface ConfigUIProps {
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
+}
+
+type TestTone = 'ok' | 'warn' | 'error';
+interface TestResult {
+  tone: TestTone;
+  title: string;
+  detail: string;
+}
+
+function describeScore(score: number | undefined, threshold: number): string {
+  if (score === undefined) return '';
+  return `匹配 ${(score * 100).toFixed(1)}%（阈值 ${(threshold * 100).toFixed(0)}%）`;
 }
 
 // ── Click ──────────────────────────────────────────────────────────
@@ -50,6 +64,107 @@ export function ClickConfigUI({ config, onChange }: ConfigUIProps) {
   const updateUia = (patch: Partial<NonNullable<typeof uiaMode>>) => {
     if (!uiaMode) return;
     onChange({ ...config, mode: { ...uiaMode, ...patch } });
+  };
+
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+
+  const handleTestTarget = async () => {
+    setTestResult(null);
+    if (mode.mode === 'coordinates') {
+      const point = mode as { mode: 'coordinates'; x: number; y: number };
+      setTestResult({
+        tone: 'ok',
+        title: '坐标已解析',
+        detail: `将点击虚拟屏幕坐标 (${point.x}, ${point.y})`,
+      });
+      return;
+    }
+    if (mode.mode === 'image') {
+      const image = mode as { mode: 'image'; imageId?: string; threshold?: number };
+      if (!image.imageId) {
+        setTestResult({ tone: 'warn', title: '缺少图片', detail: '请先选择一张参考图片' });
+        return;
+      }
+      setTesting(true);
+      try {
+        const result = await testImageTarget(image.imageId, image.threshold ?? 0.7);
+        if (result.found) {
+          const rect = result.hitRect;
+          setTestResult({
+            tone: 'ok',
+            title: '图片目标已找到',
+            detail: [
+              describeScore(result.score, result.threshold),
+              rect ? `矩形 (${rect.x}, ${rect.y}) ${rect.width}×${rect.height}` : '',
+              `用时 ${result.elapsedMs}ms`,
+            ].filter(Boolean).join(' · '),
+          });
+        } else {
+          setTestResult({
+            tone: 'error',
+            title: '未找到图片目标',
+            detail: `${describeScore(result.score, result.threshold)} · 用时 ${result.elapsedMs}ms`,
+          });
+        }
+      } catch (error) {
+        setTestResult({
+          tone: 'error',
+          title: '测试失败',
+          detail: error instanceof Error ? error.message : '仅桌面应用可用',
+        });
+      } finally {
+        setTesting(false);
+      }
+      return;
+    }
+    if (uiaMode) {
+      if (!uiaMode.window.trim()) {
+        setTestResult({ tone: 'warn', title: '缺少窗口', detail: '请先填写窗口标题' });
+        return;
+      }
+      if (!uiaMode.name?.trim() && !uiaMode.automationId?.trim() && !uiaMode.className?.trim() && !uiaMode.controlType?.trim()) {
+        setTestResult({ tone: 'warn', title: '缺少选择条件', detail: '至少填写名称 / AutomationId / 类名 / 控件类型之一' });
+        return;
+      }
+      setTesting(true);
+      try {
+        const result = await testUiaTarget({
+          window: uiaMode.window,
+          name: uiaMode.name || undefined,
+          automationId: uiaMode.automationId || undefined,
+          className: uiaMode.className || undefined,
+          controlType: uiaMode.controlType || undefined,
+          index: uiaMode.index,
+        });
+        if (result.found && result.node) {
+          const node = result.node;
+          setTestResult({
+            tone: result.occludedBy ? 'warn' : 'ok',
+            title: result.occludedBy ? '控件被遮挡' : 'UIA 控件已找到',
+            detail: [
+              `${node.controlTypeName}${node.name ? `「${node.name}」` : ''}`,
+              `(${node.x}, ${node.y}) ${node.w}×${node.h}`,
+              result.occludedBy ? `被「${result.occludedBy}」覆盖` : '',
+            ].filter(Boolean).join(' · '),
+          });
+        } else {
+          setTestResult({
+            tone: 'error',
+            title: '未找到 UIA 控件',
+            detail: result.error ?? '请检查窗口标题与选择条件',
+          });
+        }
+      } catch (error) {
+        setTestResult({
+          tone: 'error',
+          title: '测试失败',
+          detail: error instanceof Error ? error.message : '仅桌面应用可用',
+        });
+      } finally {
+        setTesting(false);
+      }
+    }
   };
 
   return (
@@ -113,15 +228,37 @@ export function ClickConfigUI({ config, onChange }: ConfigUIProps) {
       )}
 
       {mode.mode === 'image' && (
-        <div className={styles.blockConfigField}>
-          <label className={styles.blockConfigLabel}>选择图片</label>
-          <ImageSelector
-            selectedId={(mode as { mode: 'image'; imageId: string }).imageId}
-            onSelect={handleImageSelect}
-            showUploadButton={true}
-            emptyMessage="请选择或上传图片"
-          />
-        </div>
+        <>
+          <div className={styles.blockConfigField}>
+            <label className={styles.blockConfigLabel}>选择图片</label>
+            <ImageSelector
+              selectedId={(mode as { mode: 'image'; imageId: string }).imageId}
+              onSelect={handleImageSelect}
+              showUploadButton={true}
+              emptyMessage="请选择或上传图片"
+            />
+          </div>
+          <div className={styles.blockConfigField}>
+            <label className={styles.blockConfigLabel} htmlFor="click-image-threshold">匹配阈值</label>
+            <input
+              id="click-image-threshold"
+              type="number"
+              className={styles.blockConfigInput}
+              value={(mode as { mode: 'image'; threshold?: number }).threshold ?? 0.7}
+              onChange={(e) =>
+                onChange({
+                  ...config,
+                  mode: { ...(mode as { mode: 'image'; imageId?: string }), threshold: Number(e.target.value) },
+                })
+              }
+              min={0}
+              max={1}
+              step={0.05}
+              data-testid="input-click-threshold"
+            />
+            <span className={styles.blockConfigHint}>0.7 为默认值；调低更宽松，调高更严格</span>
+          </div>
+        </>
       )}
 
       {uiaMode && (
@@ -218,6 +355,32 @@ export function ClickConfigUI({ config, onChange }: ConfigUIProps) {
       )}
 
       <div className={styles.blockConfigField}>
+        <button
+          className={styles.blockConfigTestBtn}
+          type="button"
+          onClick={() => void handleTestTarget()}
+          disabled={testing}
+          data-testid="btn-test-target"
+        >
+          {testing ? '正在解析目标…' : '测试目标'}
+        </button>
+        <span className={styles.blockConfigHint}>
+          只读解析当前屏幕，不会点击、不会提升窗口
+        </span>
+      </div>
+
+      {testResult && (
+        <div
+          className={`${styles.targetTestResult} ${styles[`targetTestResult${testResult.tone.charAt(0).toUpperCase() + testResult.tone.slice(1)}`]}`}
+          role="status"
+          data-testid="target-test-result"
+        >
+          <strong>{testResult.title}</strong>
+          <span>{testResult.detail}</span>
+        </div>
+      )}
+
+      <div className={styles.blockConfigField}>
         <label className={styles.blockConfigLabel} htmlFor="click-count">点击次数</label>
         <input
           id="click-count"
@@ -240,6 +403,47 @@ export function ClickConfigUI({ config, onChange }: ConfigUIProps) {
 export function WaitImageConfigUI({ config, onChange }: ConfigUIProps) {
   const imageId = (config.imageId as string) || '';
   const timeoutMs = (config.timeoutMs as number) ?? 5000;
+  const threshold = (config.threshold as number) ?? 0.7;
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+
+  const handleTest = async () => {
+    if (!imageId) {
+      setTestResult({ tone: 'warn', title: '缺少图片', detail: '请先选择一张参考图片' });
+      return;
+    }
+    setTestResult(null);
+    setTesting(true);
+    try {
+      const result = await testImageTarget(imageId, threshold);
+      if (result.found) {
+        const rect = result.hitRect;
+        setTestResult({
+          tone: 'ok',
+          title: '当前屏幕已出现目标',
+          detail: [
+            describeScore(result.score, result.threshold),
+            rect ? `矩形 (${rect.x}, ${rect.y}) ${rect.width}×${rect.height}` : '',
+            `用时 ${result.elapsedMs}ms`,
+          ].filter(Boolean).join(' · '),
+        });
+      } else {
+        setTestResult({
+          tone: 'warn',
+          title: '当前屏幕未出现目标',
+          detail: `${describeScore(result.score, result.threshold)} · 执行时会按超时继续等待`,
+        });
+      }
+    } catch (error) {
+      setTestResult({
+        tone: 'error',
+        title: '测试失败',
+        detail: error instanceof Error ? error.message : '仅桌面应用可用',
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   return (
     <div className={styles.blockConfigSection} data-testid="wait-image-config">
@@ -266,6 +470,43 @@ export function WaitImageConfigUI({ config, onChange }: ConfigUIProps) {
         />
         <span className={styles.blockConfigHint}>默认 5000 毫秒</span>
       </div>
+      <div className={styles.blockConfigField}>
+        <label className={styles.blockConfigLabel} htmlFor="waitimage-threshold">匹配阈值</label>
+        <input
+          id="waitimage-threshold"
+          type="number"
+          className={styles.blockConfigInput}
+          value={threshold}
+          onChange={(e) => onChange({ ...config, threshold: Number(e.target.value) })}
+          min={0}
+          max={1}
+          step={0.05}
+          data-testid="input-wait-threshold"
+        />
+        <span className={styles.blockConfigHint}>0.7 为默认值；低于阈值的匹配会被视为未出现</span>
+      </div>
+      <div className={styles.blockConfigField}>
+        <button
+          className={styles.blockConfigTestBtn}
+          type="button"
+          onClick={() => void handleTest()}
+          disabled={testing}
+          data-testid="btn-test-wait-image"
+        >
+          {testing ? '正在匹配…' : '测试当前屏幕'}
+        </button>
+        <span className={styles.blockConfigHint}>只读匹配，不会等待、不会点击</span>
+      </div>
+      {testResult && (
+        <div
+          className={`${styles.targetTestResult} ${styles[`targetTestResult${testResult.tone.charAt(0).toUpperCase() + testResult.tone.slice(1)}`]}`}
+          role="status"
+          data-testid="wait-image-test-result"
+        >
+          <strong>{testResult.title}</strong>
+          <span>{testResult.detail}</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -631,3 +631,51 @@
     transform: translateY(-10px);
   }
 }
+/* ── Target test (read-only resolution) ─────────────────────────── */
+.blockConfigTestBtn {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border) 72%);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+.blockConfigTestBtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+.blockConfigTestBtn:active:not(:disabled) { transform: translateY(1px); }
+.blockConfigTestBtn:disabled { opacity: 0.6; cursor: progress; }
+
+.targetTestResult {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+}
+.targetTestResult strong { font-size: var(--font-size-sm); }
+.targetTestResult span { color: var(--color-text-secondary); }
+.targetTestResultOk {
+  border-color: color-mix(in srgb, var(--color-success) 38%, var(--color-border) 62%);
+  background: color-mix(in srgb, var(--color-success) 8%, var(--color-bg-secondary) 92%);
+}
+.targetTestResultOk strong { color: var(--color-success); }
+.targetTestResultWarn {
+  border-color: color-mix(in srgb, var(--color-warning) 42%, var(--color-border) 58%);
+  background: color-mix(in srgb, var(--color-warning) 9%, var(--color-bg-secondary) 91%);
+}
+.targetTestResultWarn strong { color: var(--color-warning); }
+.targetTestResultError {
+  border-color: color-mix(in srgb, var(--color-danger) 42%, var(--color-border) 58%);
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-bg-secondary) 92%);
+}
+.targetTestResultError strong { color: var(--color-danger); }

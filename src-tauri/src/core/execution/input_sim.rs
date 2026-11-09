@@ -40,7 +40,7 @@ impl Executor {
                     (*x, *y)
                 }
             }
-            ClickMode::Image { image_id } => {
+            ClickMode::Image { image_id, threshold } => {
                 let image_id =
                     image_id.as_ref().ok_or_else(|| {
                         AppError::ExecutionFailed(
@@ -67,7 +67,7 @@ impl Executor {
                     pos
                 } else {
                     // Find image on screen
-                    let (found, pos, confidence) = self.find_image_on_screen(image_id, None).await?;
+                    let (found, pos, confidence) = self.find_image_on_screen(image_id, *threshold).await?;
                     if !found {
                         let image_name = self.image_library
                             .get(image_id)

@@ -249,3 +249,25 @@ fn runtime_self_check() -> Result<RuntimeCheckResponse>
 |--------|----------|---------|
 | `execution-event` | 执行步骤完成/失败/状态变更 | `ExecutionEvent` (含 step_index, block_id, status, error 等) |
 | `application-error` | 后端 panic 或严重错误 | `{ type, message, location }` |
+---
+
+## 目标测试（只读解析，不点击）
+
+### `test_image_target`
+```rust
+fn test_image_target(image_id: String, threshold: Option<f64>) -> Result<ImageTargetTest>
+```
+截取虚拟桌面并匹配图片库中的参考图，返回 `found / score / threshold / center / hitRect / elapsedMs`。不会点击、不会修改任何状态；GUI 配置面板的「测试目标」按钮使用它。
+
+### `test_uia_target`
+```rust
+fn test_uia_target(
+    window: String,
+    name: Option<String>,
+    automation_id: Option<String>,
+    class_name: Option<String>,
+    control_type: Option<String>,
+    index: Option<usize>,
+) -> Result<UiaTargetTest>
+```
+只读查找 Windows UIA 控件，返回控件矩形、类型、名称与 `occludedBy`（当前覆盖它的窗口）。不提升窗口、不点击；执行点击时仍走「提窗 → 重读矩形 → WindowFromPoint」的安全门。

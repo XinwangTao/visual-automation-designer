@@ -7,6 +7,11 @@
 ## [Unreleased]
 
 ### Added
+- **GUI 目标测试**：点击/等待图片配置面板新增「测试目标」按钮，只读解析当前屏幕（图片分数、命中矩形、UIA 控件与遮挡窗口），不会点击或提窗。
+- **图片匹配阈值可配**：点击（图片模式）与等待图片支持 `threshold`，GUI 与流程 JSON 双向保存。
+- **UIA 控件配置 UI**：窗口标题、名称、AutomationId、类名、控件类型、序号、跳过遮挡校验。
+- **UI Refresh**：新增 `styles/ui-refresh.css` 最终视觉层——紧凑工具栏与 SVG 图标、工具箱列表化、节点卡片缩小到 236px、配置面板统一输入/按钮、底部面板折叠清理、弹窗与流程列表重排、亮/暗主题统一。
+
 - **`vadctl` 无头调试入口**（`src-tauri/src/bin/vadctl.rs` + `src-tauri/src/cli/`）：
   `doctor` / `validate` / `list` / `get` / `find` / `uia` / `click-target` / `run` / `step`，统一 JSON 输出与退出码 `0/2/3/4/5`。
 - **执行证据**：`run`/`step` 写入 `runs/<timestamp>/report.json`，每步包含截图、匹配分数、命中矩形、耗时、尝试次数与错误。

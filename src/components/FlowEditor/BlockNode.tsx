@@ -12,6 +12,7 @@
 import { memo, useMemo, useState } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { getPortDefinitions, type PortSchema } from '../../types/port';
+import { BlockGlyph } from '../common';
 import styles from './FlowEditor.module.css';
 
 // Block types
@@ -62,28 +63,6 @@ function getBlockColor(blockType: string, blockCategory: string): string {
         return 'var(--color-block-ocr-check, #795548)';
       default:
         return 'var(--color-block-control, #2196f3)';
-    }
-  }
-}
-
-function getBlockIcon(blockType: string, blockCategory: string): string {
-  if (blockCategory === 'action') {
-    switch (blockType) {
-      case 'click': return '👆';
-      case 'wait_image': return '🔍';
-      case 'wait_time': return '⏱️';
-      case 'input_text': return '⌨️';
-      case 'text_extract': return '👁️';
-      case 'screenshot_assert': return '📸';
-      default: return '▶️';
-    }
-  } else {
-    switch (blockType) {
-      case 'loop':
-      case 'loop_infinite': return '🔄';
-      case 'condition': return '❓';
-      case 'text_check': return '🔤';
-      default: return '🔀';
     }
   }
 }
@@ -324,7 +303,7 @@ function BlockNodeComponent({ data, selected }: NodeProps<BlockNodeData>) {
       )}
 
       <div className={styles.blockNodeHeader} style={{ backgroundColor: `${blockColor}20` }}>
-        <span className={styles.blockNodeIcon}>{getBlockIcon(blockType, blockCategory)}</span>
+        <span className={styles.blockNodeIcon} data-block-type={blockType}><BlockGlyph type={blockType} size={16} /></span>
         <div className={styles.blockNodeTitleStack}>
           <span className={styles.blockNodeEyebrow}>{categoryEyebrow}</span>
           <span className={styles.blockNodeLabel}>{label}</span>
