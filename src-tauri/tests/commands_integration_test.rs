@@ -468,6 +468,7 @@ fn test_block_config_serialization() {
         BlockConfig::WaitImage {
             image_id: Some(ImageId::new()),
             timeout_ms: Some(5000),
+            threshold: None,
         },
         BlockConfig::WaitTime {
             duration_ms: 1000,
@@ -558,6 +559,7 @@ fn make_wait_image_block(x: f64, y: f64) -> BlockNode {
         BlockConfig::WaitImage {
             image_id: Some(ImageId::new()),
             timeout_ms: Some(5000),
+            threshold: None,
         },
     )
 }
@@ -1092,6 +1094,7 @@ fn print_timing(label: &str, d: std::time::Duration) {
 //    The test will panic if the image is not found.
 //
 #[test]
+#[ignore = "手工端到端验证：需要本机 F:\\665.png 存在且显示在屏幕上，还会真实点击鼠标"]
 fn test_e2e_find_665png_and_click() {
     use std::time::Instant;
 

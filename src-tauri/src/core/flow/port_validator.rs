@@ -9,11 +9,30 @@
 
 use std::collections::HashMap;
 
-use crate::models::block::{BlockId, BlockType, ControlType};
+use crate::models::block::{BlockConfig, BlockId, BlockNode, BlockType, ClickMode, ControlType};
 use crate::models::flow::{Connection, Flow};
 use crate::models::port::port_definitions_for;
 
 use super::flow_validator::{FlowValidator, ValidationError};
+
+/// 端口值是否已经在块的配置面板里填好（图片、关键字、坐标等）。
+///
+/// 端口系统描述的是「数据流」，但实际使用时多数块的目标图片与参数是直接在配置
+/// 面板里选的（落在 BlockConfig 里），不需要额外连线。只认连线会把「图选好了、
+/// 参数也填了」的合法流程判成缺输入，用户看到一片红却不知道还要连什么。
+fn input_provided_by_config(block: &BlockNode, port_name: &str) -> bool {
+    match (&block.config, port_name) {
+        (BlockConfig::Click { mode, .. }, "image_ref") => matches!(mode, ClickMode::Image { .. }),
+        (BlockConfig::Click { mode, .. }, "coordinates") => matches!(mode, ClickMode::Coordinates { .. }),
+        (BlockConfig::WaitImage { image_id, .. }, "image_ref") => image_id.is_some(),
+        (BlockConfig::ScreenshotAssert { image_id, .. }, "image_ref") => image_id.is_some(),
+        (BlockConfig::TextExtract { image_id, .. }, "image_ref") => image_id.is_some(),
+        (BlockConfig::Condition { image_id, .. }, "image_ref") => image_id.is_some(),
+        (BlockConfig::TextCheck { image_id, .. }, "image_ref") => image_id.is_some(),
+        (BlockConfig::TextCheck { keyword, .. }, "keyword") => !keyword.trim().is_empty(),
+        _ => false,
+    }
+}
 
 /// Validate port requirements for all blocks in a flow
 pub(super) fn validate_port_requirements(
@@ -57,7 +76,7 @@ pub(super) fn validate_port_requirements(
             }
             // Check if this block has any incoming connection
             let has_incoming = incoming.get(block_id).is_some_and(|conns| !conns.is_empty());
-            if !has_incoming {
+            if !has_incoming && !input_provided_by_config(block, &input_port.name) {
                 errors.push(
                     ValidationError::error(
                         "PORT_REQUIRED_INPUT_MISSING",
@@ -197,6 +216,60 @@ mod tests {
         assert!(
             !required_errors.is_empty(),
             "Should flag missing required input"
+        );
+    }
+
+    #[test]
+    fn test_required_input_satisfied_by_config() {
+        // 配置面板里选好图片就不再要求连线：端口只是数据流的一种来源。
+        let validator = FlowValidator::new();
+        let mut flow = create_flow("test");
+        let block = add_block(
+            &mut flow,
+            BlockType::Action { action: ActionType::WaitImage },
+            BlockConfig::WaitImage {
+                image_id: Some(crate::models::image::ImageId::new()),
+                timeout_ms: Some(5000),
+                threshold: None,
+            },
+        );
+        flow.entry_block = Some(block);
+
+        let errors = validate_port_requirements(&validator, &flow);
+        let required_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| e.code == "PORT_REQUIRED_INPUT_MISSING")
+            .collect();
+        assert!(
+            required_errors.is_empty(),
+            "配置里已有图片时不应再报缺少输入端口: {:?}",
+            required_errors
+        );
+    }
+
+    #[test]
+    fn test_click_coordinates_mode_needs_no_wiring() {
+        let validator = FlowValidator::new();
+        let mut flow = create_flow("test");
+        let block = add_block(
+            &mut flow,
+            BlockType::Action { action: ActionType::Click },
+            BlockConfig::Click {
+                mode: ClickMode::Coordinates { x: 10, y: 20 },
+                count: 1,
+            },
+        );
+        flow.entry_block = Some(block);
+
+        let errors = validate_port_requirements(&validator, &flow);
+        let required_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| e.code == "PORT_REQUIRED_INPUT_MISSING")
+            .collect();
+        assert!(
+            required_errors.is_empty(),
+            "坐标点击不需要连端口: {:?}",
+            required_errors
         );
     }
 
