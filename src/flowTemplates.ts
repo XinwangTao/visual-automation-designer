@@ -20,6 +20,8 @@ export interface FlowTemplateConnection {
   /** 节点在 nodes 数组中的下标，从 0 开始 */
   from: number;
   to: number;
+  /** 源块的输出端口名；多输出端口（如等待图片的 found / match_position）必须写 */
+  sourceHandle?: string;
 }
 
 export interface FlowTemplate {
@@ -29,6 +31,12 @@ export interface FlowTemplate {
   nodes: FlowTemplateNode[];
   connections: FlowTemplateConnection[];
 }
+
+/**
+ * 与工具箱拖入节点时的默认值一致：占位图片 ID，提示用户还没选图。
+ * 图片库为空时也能直接建流程，运行到该步会明确报「图片不存在」。
+ */
+const PLACEHOLDER_IMAGE_ID = '00000000-0000-0000-0000-000000000000';
 
 export const FLOW_TEMPLATES: FlowTemplate[] = [
   {
@@ -40,7 +48,7 @@ export const FLOW_TEMPLATES: FlowTemplate[] = [
         type: 'wait_image',
         category: 'action',
         position: { x: 80, y: 160 },
-        config: { type: 'wait_image', timeoutMs: 15000 },
+        config: { type: 'wait_image', imageId: PLACEHOLDER_IMAGE_ID, timeoutMs: 15000 },
       },
       {
         type: 'click',
@@ -56,7 +64,7 @@ export const FLOW_TEMPLATES: FlowTemplate[] = [
       },
     ],
     connections: [
-      { from: 0, to: 1 },
+      { from: 0, to: 1, sourceHandle: 'found' },
       { from: 1, to: 2 },
     ],
   },
@@ -69,7 +77,7 @@ export const FLOW_TEMPLATES: FlowTemplate[] = [
         type: 'wait_image',
         category: 'action',
         position: { x: 80, y: 160 },
-        config: { type: 'wait_image', timeoutMs: 15000 },
+        config: { type: 'wait_image', imageId: PLACEHOLDER_IMAGE_ID, timeoutMs: 15000 },
       },
       {
         type: 'click',
@@ -91,7 +99,7 @@ export const FLOW_TEMPLATES: FlowTemplate[] = [
       },
     ],
     connections: [
-      { from: 0, to: 1 },
+      { from: 0, to: 1, sourceHandle: 'found' },
       { from: 1, to: 2 },
       { from: 2, to: 3 },
     ],
@@ -131,7 +139,10 @@ export async function applyFlowTemplate(
     if (!source || !target) {
       throw new Error(`模板连线指向了不存在的节点：${connection.from} → ${connection.to}`);
     }
-    await addConnection({ source, target, sourceHandle: null, targetHandle: null }, flowId);
+    await addConnection(
+      { source, target, sourceHandle: connection.sourceHandle ?? null, targetHandle: null },
+      flowId,
+    );
   }
 
   return ids;

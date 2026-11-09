@@ -36,8 +36,7 @@ describe('内置流程模板', () => {
     }
   });
 
-  it('连线只指向存在的节点，且不存在重复连线', () => {
-    for (const template of FLOW_TEMPLATES) {
+  it('连线只指向存在的节点，且不存在重复连线', () => {    for (const template of FLOW_TEMPLATES) {
       const seen = new Set<string>();
       for (const connection of template.connections) {
         expect(connection.from).toBeGreaterThanOrEqual(0);
@@ -47,6 +46,18 @@ describe('内置流程模板', () => {
         const key = `${connection.from}->${connection.to}`;
         expect(seen.has(key)).toBe(false);
         seen.add(key);
+      }
+    }
+  });
+
+  it('多输出端口的块流出时带 sourceHandle（否则后端报端口歧义）', () => {
+    // 「等待图片」有 found / match_position 两个输出端口
+    for (const template of FLOW_TEMPLATES) {
+      for (const connection of template.connections) {
+        const sourceNode = template.nodes[connection.from];
+        if (sourceNode.type === 'wait_image') {
+          expect(connection.sourceHandle).toBeTruthy();
+        }
       }
     }
   });
