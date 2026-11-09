@@ -14,6 +14,10 @@
 - 前端运行时异常在非 `main.tsx` 入口挂载时完全静默：异常桥改为引用计数安装，toast 与执行日志不再丢失
 - `logRuntimeIssue` 在后端不可用时不再抛出未处理 rejection（原先会让兜底通道自己触发下一轮异常）
 - ESLint 误扫本地代理工作树（`.claude/`、`.understand-anything/`），`npm run lint` 从 371 条噪音错误恢复为 0
+- 流程校验报 `missing field config`：后端 camelCase 类型名（`waitImage`）未映射回前端下划线命名，再次发回后端时整个 config 字段被丢弃
+- 端口校验只认连线、不认配置面板：目标图片、关键字、坐标模式已在配置里填好的流程不再被误报「缺少必需输入」
+- 窗口最大化时两侧栏被画布挤压，工具箱卡片压成几十像素、中文逐字竖排
+- `commands_integration_test` 因 `WaitImage` 新增的 `threshold` 字段编译失败；依赖本机素材的手工 e2e 标为 `#[ignore]`
 
 ---
 
