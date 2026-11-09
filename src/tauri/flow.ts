@@ -219,37 +219,45 @@ type TauriBlockConfigPayload =
     };
 
 function toTauriBlockConfig(config: BlockConfig): TauriBlockConfigPayload {
-  switch (config.type) {
+  // Nodes returned by `create_block` use the backend's camelCase tag
+  // (`waitTime`), while editor-created configs use snake_case (`wait_time`).
+  // Normalise the tag so both shapes serialize to a valid payload instead of
+  // returning `undefined` (which dropped `config` and broke validate/dry-run).
+  const rawType = (config as unknown as { type?: string }).type ?? '';
+  const configType = rawType.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+  const normalized = { ...(config as unknown as Record<string, unknown>), type: configType } as unknown as BlockConfig;
+
+  switch (normalized.type) {
     case 'click':
       return {
         type: 'click',
-        mode: config.mode.mode === 'image'
-          ? { mode: 'image', imageId: config.mode.imageId, threshold: config.mode.threshold }
-          : config.mode,
-        count: config.count,
+        mode: normalized.mode.mode === 'image'
+          ? { mode: 'image', imageId: normalized.mode.imageId, threshold: normalized.mode.threshold }
+          : normalized.mode,
+        count: normalized.count,
       };
     case 'wait_image':
       return {
         type: 'waitImage',
-        imageId: config.imageId,
-        timeoutMs: config.timeoutMs,
-        threshold: config.threshold,
+        imageId: normalized.imageId,
+        timeoutMs: normalized.timeoutMs,
+        threshold: normalized.threshold,
       };
     case 'wait_time':
       return {
         type: 'waitTime',
-        durationMs: config.durationMs,
+        durationMs: normalized.durationMs,
       };
     case 'input_text':
       return {
         type: 'inputText',
-        text: config.text,
-        intervalMs: config.intervalMs,
+        text: normalized.text,
+        intervalMs: normalized.intervalMs,
       };
     case 'loop':
       return {
         type: 'loop',
-        count: config.count,
+        count: normalized.count,
       };
     case 'loop_infinite':
       return {
@@ -258,33 +266,37 @@ function toTauriBlockConfig(config: BlockConfig): TauriBlockConfigPayload {
     case 'condition':
       return {
         type: 'condition',
-        imageId: config.imageId,
-        condition: config.condition,
-        trueBranch: config.trueBranch,
-        falseBranch: config.falseBranch,
+        imageId: normalized.imageId,
+        condition: normalized.condition,
+        trueBranch: normalized.trueBranch,
+        falseBranch: normalized.falseBranch,
       };
     case 'text_extract':
       return {
         type: 'textExtract',
-        imageId: config.imageId,
-        language: config.language,
+        imageId: normalized.imageId,
+        language: normalized.language,
       };
     case 'screenshot_assert':
       return {
         type: 'screenshotAssert',
-        imageId: config.imageId,
-        threshold: config.threshold,
-        strictMode: config.strictMode,
-        region: config.region,
+        imageId: normalized.imageId,
+        threshold: normalized.threshold,
+        strictMode: normalized.strictMode,
+        region: normalized.region,
       };
     case 'text_check':
       return {
         type: 'textCheck',
-        imageId: config.imageId,
-        keyword: config.keyword,
-        trueBranch: config.trueBranch,
-        falseBranch: config.falseBranch,
+        imageId: normalized.imageId,
+        keyword: normalized.keyword,
+        trueBranch: normalized.trueBranch,
+        falseBranch: normalized.falseBranch,
       };
+    default:
+      // Unknown tag: preserve the object so the backend can report a precise
+      // validation error instead of receiving a missing `config` field.
+      return config as unknown as TauriBlockConfigPayload;
   }
 }
 

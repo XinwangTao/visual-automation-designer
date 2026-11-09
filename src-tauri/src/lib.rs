@@ -137,10 +137,14 @@ pub fn run() {
             let execution_state = ExecutionState::new(&app.handle());
             app.manage(execution_state);
             
+            // DevTools no longer auto-opens (it covered the app during UI
+            // checks). Opt in with VAD_OPEN_DEVTOOLS=1.
             #[cfg(debug_assertions)]
             {
-                if let Some(window) = app.get_webview_window("main") {
-                    window.open_devtools();
+                if std::env::var("VAD_OPEN_DEVTOOLS").ok().as_deref() == Some("1") {
+                    if let Some(window) = app.get_webview_window("main") {
+                        window.open_devtools();
+                    }
                 }
             }
             Ok(())
@@ -186,6 +190,7 @@ pub fn run() {
             // Read-only target resolution for the config panel
             commands::test_image_target,
             commands::test_uia_target,
+            commands::dry_run_flow,
         ])
         .run(tauri::generate_context!());
 

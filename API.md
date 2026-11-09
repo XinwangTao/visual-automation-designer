@@ -271,3 +271,9 @@ fn test_uia_target(
 ) -> Result<UiaTargetTest>
 ```
 只读查找 Windows UIA 控件，返回控件矩形、类型、名称与 `occludedBy`（当前覆盖它的窗口）。不提升窗口、不点击；执行点击时仍走「提窗 → 重读矩形 → WindowFromPoint」的安全门。
+
+### `dry_run_flow`
+```rust
+async fn dry_run_flow(flow_id: String) -> Result<DryRunResponse>
+```
+按真实控制流解析每一步的点击/图片/UIA/OCR 目标，但不点击、不输入、不提窗、不等待，也不执行断言。返回 `ok / status / error / steps[]`，每步含 `blockId / ok / elapsedMs / score / hitRect / target / error`。GUI 工具栏「试跑」按钮使用它。

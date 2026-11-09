@@ -20,6 +20,7 @@ import { useFlow, useExecution, useKeyboardShortcuts, useTheme, buildCanonicalFl
 import type { InternalExecutionEvent } from './hooks/useExecution';
 import type { Flow as TauriFlow, ValidationErrorResponse } from './tauri/flow';
 import { validateFlow } from './tauri/flow';
+import { dryRunFlow } from './tauri/execution';
 import { formatValidationResponse } from './validation/formatValidationMessage';
 import { getConnectionGuardValidation } from './validation/connectionGuards';
 import { isInputElement } from './utils/dom';
@@ -525,6 +526,26 @@ export function AppShell() {
     }
   }, [flow, isDirty, resetProgress, saveFlow, showToast, stepExecution, validateBeforeExecution]);
 
+  const handleDryRun = useCallback(async () => {
+    if (!flow) { showToast('warning', '没有可试跑的流程'); return; }
+    try {
+      if (isDirty) await saveFlow();
+      await validateBeforeExecution();
+      showToast('info', '正在试跑：只解析目标，不会点击');
+      const result = await dryRunFlow(flow.id);
+      if (result.ok) {
+        showToast('success', `试跑通过：解析了 ${result.steps.length} 个步骤`);
+      } else {
+        const failed = result.steps.find((step) => !step.ok);
+        const detail = result.error ?? failed?.error ?? '存在未解析的目标';
+        showToast('error', `试跑失败：${detail}`);
+      }
+    } catch (err) {
+      console.error('Failed to dry run flow:', err);
+      showToast('error', '试跑失败');
+    }
+  }, [flow, isDirty, saveFlow, showToast, validateBeforeExecution]);
+
   const handleSave = useCallback(async () => {
     if (!flow) { showToast('warning', '没有可保存的流程'); return; }
     try {
@@ -745,6 +766,7 @@ export function AppShell() {
         onPause={handlePause}
         onStop={handleStop}
         onStep={handleStep}
+        onDryRun={handleDryRun}
         onNew={openNewFlowDialog}
         onToggleTheme={toggleTheme}
         onHelp={handleShowHelp}

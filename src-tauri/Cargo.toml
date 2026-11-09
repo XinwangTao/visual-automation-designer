@@ -4,6 +4,7 @@ version = "1.0.5"
 description = "Visual Automation Designer - A visual programming tool for screen automation"
 authors = ["Visual Automation Designer Team"]
 edition = "2021"
+default-run = "visual-automation-designer"
 
 [lib]
 name = "visual_automation_designer_lib"

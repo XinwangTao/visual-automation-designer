@@ -25,6 +25,7 @@ export interface FlowToolbarProps {
   onPause?: () => void;
   onStop?: () => void;
   onStep?: () => void;
+  onDryRun?: () => void;
   onNew?: () => void;
   onToggleTheme?: () => void;
   onHelp?: () => void;
@@ -33,7 +34,7 @@ export interface FlowToolbarProps {
 
 type ToolbarIconName =
   | 'plus' | 'save' | 'folder' | 'undo' | 'redo'
-  | 'play' | 'pause' | 'stop' | 'step'
+  | 'play' | 'pause' | 'stop' | 'step' | 'dry'
   | 'sun' | 'moon' | 'auto' | 'help';
 
 const TOOLBAR_ICON_PATHS: Record<ToolbarIconName, string> = {
@@ -46,6 +47,7 @@ const TOOLBAR_ICON_PATHS: Record<ToolbarIconName, string> = {
   pause: 'M5.5 3.5v9M10.5 3.5v9',
   stop: 'M4.5 4.5h7v7h-7z',
   step: 'M4.5 3.5 10 8l-5.5 4.5zM12 3.5v9',
+  dry: 'M6 2h4M7 2v3.6L3.6 12a1 1 0 0 0 .9 1.5h7a1 1 0 0 0 .9-1.5L9 5.6V2',
   sun: 'M8 5.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6zM8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1',
   moon: 'M13 9.6A5.6 5.6 0 0 1 6.4 3a5.6 5.6 0 1 0 6.6 6.6z',
   auto: 'M3 8a5 5 0 0 1 8.6-3.5M13 8a5 5 0 0 1-8.6 3.5M11.4 2.6v2.2H9.2M4.6 13.4v-2.2h2.2',
@@ -94,6 +96,7 @@ export const FlowToolbar = memo(function FlowToolbar({
   onPause,
   onStop,
   onStep,
+  onDryRun,
   onNew,
   onToggleTheme,
   onHelp,
@@ -230,6 +233,18 @@ export const FlowToolbar = memo(function FlowToolbar({
             </button>
           </>
         )}
+
+        <button
+          className={styles.flowToolbarBtn}
+          onClick={onDryRun}
+          disabled={!hasFlow || isExecuting}
+          title="试运行：只解析目标，不点击、不输入"
+          data-testid="btn-dry-run"
+          type="button"
+          aria-label="试运行"
+        >
+          <ToolbarIcon name="dry" /> 试跑
+        </button>
 
         {/* Step button - always visible, disabled during running (not paused) execution */}
         <button

@@ -388,3 +388,32 @@ export async function runtimeSelfCheck(): Promise<RuntimeCheckResponse> {
 
   return invoke<RuntimeCheckResponse>('runtime_self_check');
 }
+
+export interface DryRunStep {
+  blockId: string;
+  ok: boolean;
+  elapsedMs: number;
+  score?: number;
+  hitRect?: { x: number; y: number; width: number; height: number };
+  target?: string;
+  error?: string;
+}
+
+export interface DryRunResponse {
+  ok: boolean;
+  status: string;
+  error?: string;
+  steps: DryRunStep[];
+}
+
+/**
+ * Resolve every target of a flow without clicking, typing or waiting.
+ * Mirrors `vadctl run --dry-run`.
+ */
+export async function dryRunFlow(flowId: string): Promise<DryRunResponse> {
+  if (isBrowserExecutionMockEnabled()) {
+    return { ok: true, status: 'completed', steps: [] };
+  }
+
+  return invoke<DryRunResponse>('dry_run_flow', { flowId });
+}

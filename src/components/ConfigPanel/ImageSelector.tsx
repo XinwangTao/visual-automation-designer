@@ -177,7 +177,7 @@ export function ImageSelector({
               data-testid="btn-paste-image"
               title="从剪贴板粘贴图片 (Ctrl+V)"
             >
-              {isPasting ? '粘贴中...' : '📋 粘贴'}
+              {isPasting ? '粘贴中...' : '粘贴'}
             </button>
           )}
         </div>
