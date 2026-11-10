@@ -533,16 +533,25 @@ pub fn save_screen_capture(
         .map_err(|e| AppError::InternalError(format!("Failed to lock image library: {e}")))?;
     // 同一块屏幕区域重复截取很常见：库里已有同图时直接复用，只更新 ROI。
     let hash = crate::core::image_library::compute_image_hash(&cropped)?;
-    let metadata = match manager.find_by_hash(&hash)? {
+    let mut metadata = match manager.find_by_hash(&hash)? {
         Some(existing) => existing,
         None => manager.add_image_from_bytes(&bytes, name, ModelImageFormat::Png)?,
     };
+    let screen_x = frozen.origin_x + x;
+    let screen_y = frozen.origin_y + y;
+    let region = crate::models::Region {
+        x: screen_x,
+        y: screen_y,
+        width,
+        height,
+    };
+    // 把这次的屏幕位置写进图片本身：图片库能可视化编辑，块没设 ROI 时也用它。
+    manager.set_image_roi(&metadata.id, Some(region))?;
+    metadata.set_roi(Some(region));
     drop(manager);
 
     restore_main_window(&app, &state);
 
-    let screen_x = frozen.origin_x + x;
-    let screen_y = frozen.origin_y + y;
     let captured = CapturedImage {
         image: metadata,
         roi: ScreenRegion {

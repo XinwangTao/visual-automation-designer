@@ -14,6 +14,7 @@ import {
   type ScreenPoint,
   type ScreenRegion,
 } from '../../tauri/commands';
+import { ImageThumb } from '../common/ImageThumb';
 import { toError } from '../../utils/error';
 import styles from './ConfigPanel.module.css';
 
@@ -277,12 +278,11 @@ export function ImageSelector({
             >
               <div className={styles.imageSelectorThumbnail}>
                 {image.filePath ? (
-                  <img
-                    src={image.filePath}
+                  <ImageThumb
+                    id={image.id}
                     alt={image.name}
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
+                    maxSize={160}
+                    className={styles.imageSelectorThumbImage}
                   />
                 ) : (
                   <div className={styles.imageSelectorPlaceholder}>

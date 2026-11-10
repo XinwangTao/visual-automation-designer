@@ -29,13 +29,17 @@ export interface FlowToolbarProps {
   onNew?: () => void;
   onToggleTheme?: () => void;
   onHelp?: () => void;
+  /** 打开图片库面板 */
+  onOpenImageLibrary?: () => void;
+  /** 图片库里的图片数量，用于按钮角标 */
+  imageCount?: number;
 }
 
 
 type ToolbarIconName =
   | 'plus' | 'save' | 'folder' | 'undo' | 'redo'
   | 'play' | 'pause' | 'stop' | 'step' | 'dry'
-  | 'sun' | 'moon' | 'auto' | 'help';
+  | 'sun' | 'moon' | 'auto' | 'help' | 'images';
 
 const TOOLBAR_ICON_PATHS: Record<ToolbarIconName, string> = {
   plus: 'M8 3v10M3 8h10',
@@ -52,6 +56,7 @@ const TOOLBAR_ICON_PATHS: Record<ToolbarIconName, string> = {
   moon: 'M13 9.6A5.6 5.6 0 0 1 6.4 3a5.6 5.6 0 1 0 6.6 6.6z',
   auto: 'M3 8a5 5 0 0 1 8.6-3.5M13 8a5 5 0 0 1-8.6 3.5M11.4 2.6v2.2H9.2M4.6 13.4v-2.2h2.2',
   help: 'M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM6.2 6.4A1.9 1.9 0 0 1 8 5.2c1 0 1.8.8 1.8 1.8 0 1.4-1.8 1.5-1.8 2.8M8 11.6v.2',
+  images: 'M2.5 3.5h11v9h-11zM2.5 10l3-3 2.5 2.5L10 7.5l3.5 3M5.6 6.2a.9.9 0 1 0 0-.1z',
 };
 
 const FILLED_ICONS = new Set<ToolbarIconName>(['play', 'stop']);
@@ -100,6 +105,8 @@ export const FlowToolbar = memo(function FlowToolbar({
   onNew,
   onToggleTheme,
   onHelp,
+  onOpenImageLibrary,
+  imageCount = 0,
 }: FlowToolbarProps) {
   const currentModeLabel = useMemo(
     () => isExecuting ? (isPaused ? '已暂停，可继续或单步' : '正在执行自动化流程') : '准备编辑并运行流程',
@@ -263,6 +270,18 @@ export const FlowToolbar = memo(function FlowToolbar({
 
       {/* Help Group - UX优化41: 增强快捷键帮助 */}
       <div className={`${styles.flowToolbarGroup} ${styles.flowToolbarGroupHelp}`} role="group" aria-label="帮助">
+        <button
+          className={styles.flowToolbarBtn}
+          onClick={onOpenImageLibrary}
+          title="图片库：查看、改名、编辑 ROI、清空"
+          data-testid="btn-image-library"
+          type="button"
+          aria-label="图片库"
+        >
+          <ToolbarIcon name="images" />
+          图片库
+          {imageCount > 0 && <span className={styles.flowToolbarBadge}>{imageCount}</span>}
+        </button>
         {/* UX优化103: 主题切换按钮 */}
         <button
           className={`${styles.flowToolbarBtn} ${styles.flowToolbarBtnTheme}`}

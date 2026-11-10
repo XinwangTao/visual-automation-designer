@@ -722,7 +722,7 @@ fn cmd_capture_image(args: &Args) -> Result<i32, CliError> {
     let manager = ImageLibraryManager::new(&images_dir)?;
     // 同一区域重复截取很常见：库里已有同图时复用，不当作错误。
     let hash = crate::core::image_library::compute_image_hash(&cropped)?;
-    let metadata = match manager.find_by_hash(&hash)? {
+    let mut metadata = match manager.find_by_hash(&hash)? {
         Some(existing) => existing,
         None => manager
             .add_image_from_bytes(
@@ -732,6 +732,9 @@ fn cmd_capture_image(args: &Args) -> Result<i32, CliError> {
             )
             .map_err(|e| CliError::runtime(format!("cannot add image: {e}")))?,
     };
+    let region = crate::models::Region { x, y, width, height };
+    manager.set_image_roi(&metadata.id, Some(region))?;
+    metadata.set_roi(Some(region));
 
     println!(
         "{}",

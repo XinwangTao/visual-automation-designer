@@ -23,7 +23,8 @@ import type { InternalExecutionEvent } from './hooks/useExecution';
 import type { Flow as TauriFlow, ValidationErrorResponse } from './tauri/flow';
 import { validateFlow } from './tauri/flow';
 import { dryRunFlow } from './tauri/execution';
-import { onScreenCaptureClosed, onScreenCaptureOpened } from './tauri/commands';
+import { listImages, onScreenCaptureClosed, onScreenCaptureOpened, onScreenCaptureSaved } from './tauri/commands';
+import { ImageLibraryModal } from './components/ImageLibrary/ImageLibraryModal';
 import { formatValidationResponse } from './validation/formatValidationMessage';
 import { getConnectionGuardValidation } from './validation/connectionGuards';
 import { isInputElement } from './utils/dom';
@@ -130,6 +131,20 @@ export function AppShell() {
   const [frontendRuntimeEvents, setFrontendRuntimeEvents] = useState<InternalExecutionEvent[]>([]);
   /** 后端把主窗口切成全屏框选层时挂载 CaptureOverlay。 */
   const [captureOverlayOpen, setCaptureOverlayOpen] = useState(false);
+  const [imageLibraryOpen, setImageLibraryOpen] = useState(false);
+  const [imageCount, setImageCount] = useState(0);
+
+  /** 刷新工具栏角标的图片数量（截取、导入、删除后都要调用）。 */
+  const refreshImageCount = useCallback(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return;
+    void listImages()
+      .then((list) => setImageCount(list.length))
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    refreshImageCount();
+  }, [refreshImageCount]);
 
   useEffect(() => {
     // 浏览器预览/单测里没有 Tauri IPC，跳过订阅，避免制造无关的前端异常。
@@ -142,11 +157,12 @@ export function AppShell() {
     };
     void onScreenCaptureOpened(() => setCaptureOverlayOpen(true)).then(keep, () => undefined);
     void onScreenCaptureClosed(() => setCaptureOverlayOpen(false)).then(keep, () => undefined);
+    void onScreenCaptureSaved(() => refreshImageCount()).then(keep, () => undefined);
     return () => {
       disposed = true;
       disposers.forEach((dispose) => dispose());
     };
-  }, []);
+  }, [refreshImageCount]);
 
   const errorsCount = flowValidationErrors.length;
   const warningsCount = flowValidationWarnings.length;
@@ -794,6 +810,8 @@ export function AppShell() {
         onNew={openNewFlowDialog}
         onToggleTheme={toggleTheme}
         onHelp={handleShowHelp}
+        onOpenImageLibrary={() => setImageLibraryOpen(true)}
+        imageCount={imageCount}
       />
 
       <div className="app__content">
@@ -1087,6 +1105,12 @@ export function AppShell() {
 
       {/* 全屏框选层：挂到 body，避免被侧栏/卡片的 backdrop-filter 变成 fixed 容器 */}
       {captureOverlayOpen && createPortal(<CaptureOverlay />, document.body)}
+
+      <ImageLibraryModal
+        open={imageLibraryOpen}
+        onClose={() => setImageLibraryOpen(false)}
+        onChanged={refreshImageCount}
+      />
     </div>
   );
 }

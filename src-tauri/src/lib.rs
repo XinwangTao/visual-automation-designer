@@ -159,6 +159,9 @@ pub fn run() {
             commands::remove_image,
             commands::rename_image,
             commands::list_images,
+            commands::set_image_roi,
+            commands::clear_image_library,
+            commands::get_image_thumbnail,
             commands::get_image,
             // Flow management commands
             commands::create_flow,

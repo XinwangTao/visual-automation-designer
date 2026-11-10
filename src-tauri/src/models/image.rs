@@ -90,6 +90,10 @@ pub struct ImageMetadata {
     pub created_at: DateTime<Utc>,
     /// Perceptual hash for deduplication
     pub hash: String,
+    /// 截取时在虚拟桌面上的位置（物理像素）。作为 ROI 默认值，也用于
+    /// 图片库里的可视化编辑；老数据没有这个字段，反序列化为 None。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roi: Option<crate::models::block::Region>,
 }
 
 impl ImageMetadata {
@@ -111,6 +115,7 @@ impl ImageMetadata {
             format,
             created_at: Utc::now(),
             hash,
+            roi: None,
         }
     }
 
@@ -134,7 +139,13 @@ impl ImageMetadata {
             format,
             created_at,
             hash,
+            roi: None,
         }
+    }
+
+    /// Attach (or clear) the screen region this image was captured from.
+    pub fn set_roi(&mut self, roi: Option<crate::models::block::Region>) {
+        self.roi = roi;
     }
 
     /// Rename the image
@@ -194,6 +205,12 @@ impl ImageLibrary {
     /// Get a mutable image by ID
     pub fn get_image_mut(&mut self, id: &ImageId) -> Option<&mut ImageMetadata> {
         self.images.iter_mut().find(|img| img.id == *id)
+    }
+
+    /// Drop every entry. Files are deleted by the manager, not here.
+    pub fn clear(&mut self) {
+        self.images.clear();
+        self.total_size_bytes = 0;
     }
 
     /// List all images

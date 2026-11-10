@@ -35,6 +35,16 @@ export interface ImageMetadata {
   createdAt: string;
   /** 图片哈希（用于去重） */
   hash: string;
+  /** 截取时在虚拟桌面上的位置（物理像素）；块没设 ROI 时回落到这里 */
+  roi?: ScreenRect;
+}
+
+/** 虚拟桌面上的矩形（物理像素） */
+export interface ScreenRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 /**

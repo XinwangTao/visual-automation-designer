@@ -7,7 +7,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import type { ImageMetadata } from '../types/image';
+import type { ImageMetadata, ScreenRect } from '../types/image';
 import type { Flow, FlowMetadata } from '../types/flow';
 import type { BlockId } from '../types/block';
 
@@ -157,6 +157,30 @@ export async function renameImage(id: ImageId, newName: string): Promise<void> {
  */
 export async function listImages(): Promise<ImageMetadata[]> {
   return invoke<ImageMetadata[]>('list_images');
+}
+
+/**
+ * 设置图片的屏幕 ROI（截取位置）；传 null 表示清除。
+ */
+export async function setImageRoi(id: string, roi: ScreenRect | null): Promise<boolean> {
+  return invoke<boolean>('set_image_roi', { id, roi });
+}
+
+/**
+ * 清空图片库（删除所有图片文件，不可恢复）。
+ */
+export async function clearImageLibrary(): Promise<number> {
+  return invoke<number>('clear_image_library');
+}
+
+/**
+ * 取图片缩略图的 data URL。
+ *
+ * WebView 读不到图片库目录，`<img src="文件名">` 一定 404——这就是之前
+ * 选择器里一片空白的根因。
+ */
+export async function getImageThumbnail(id: string, maxSize = 320): Promise<string> {
+  return invoke<string>('get_image_thumbnail', { id, maxSize });
 }
 
 /**

@@ -408,10 +408,71 @@ impl ImageLibraryManager {
         if success {
             self.save_library()?;
         }
-        
+
         Ok(success)
     }
-    
+
+    /// Attach (or clear) the screen region an image was captured from.
+    ///
+    /// Blocks fall back to this region when their own ROI is empty, so editing
+    /// it here changes where flows look for the image.
+    pub fn set_image_roi(
+        &self,
+        id: &ImageId,
+        roi: Option<crate::models::block::Region>,
+    ) -> Result<bool> {
+        let success = {
+            let mut library = self.library.lock()
+                .map_err(|e| AppError::InternalError(
+                    format!("Failed to lock library: {}", e)
+                ))?;
+
+            match library.get_image_mut(id) {
+                Some(image) => {
+                    image.set_roi(roi);
+                    true
+                }
+                None => false,
+            }
+        };
+
+        if success {
+            self.save_library()?;
+        }
+
+        Ok(success)
+    }
+
+    /// Remove every image and reset the metadata file.
+    ///
+    /// Destructive: the caller must confirm with the user first.
+    pub fn clear_images(&self) -> Result<usize> {
+        let removed = {
+            let mut library = self.library.lock()
+                .map_err(|e| AppError::InternalError(
+                    format!("Failed to lock library: {}", e)
+                ))?;
+
+            let removed = library.count();
+            let files: Vec<String> = library
+                .list_images()
+                .iter()
+                .map(|image| image.file_path.clone())
+                .collect();
+            library.clear();
+            (removed, files)
+        };
+
+        for file in &removed.1 {
+            let path = self.images_dir.join(file);
+            if path.exists() {
+                let _ = fs::remove_file(path);
+            }
+        }
+        self.save_library()?;
+        Ok(removed.0)
+    }
+
     /// Get the full path to an image file.
     ///
     /// # Arguments
@@ -668,5 +729,75 @@ mod tests {
         
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), AppError::ImageError(_)));
+    }
+
+    #[test]
+    fn test_set_image_roi_persists() {
+        let temp_dir = tempdir().unwrap();
+        let source_dir = temp_dir.path().join("source");
+        let images_dir = temp_dir.path().join("images");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let image_path = create_test_image_file(&source_dir, "roi.png", ImageFormat::Png);
+        let manager = ImageLibraryManager::new(&images_dir).unwrap();
+        let metadata = manager.add_image(&image_path, "roi".to_string()).unwrap();
+
+        let region = crate::models::Region { x: 12, y: 34, width: 100, height: 100 };
+        assert!(manager.set_image_roi(&metadata.id, Some(region)).unwrap());
+        assert_eq!(manager.get_image(&metadata.id).unwrap().unwrap().roi, Some(region));
+
+        // 重新从磁盘加载后仍然保留
+        let reopened = ImageLibraryManager::new(&images_dir).unwrap();
+        assert_eq!(reopened.get_image(&metadata.id).unwrap().unwrap().roi, Some(region));
+
+        assert!(manager.set_image_roi(&metadata.id, None).unwrap());
+        assert_eq!(manager.get_image(&metadata.id).unwrap().unwrap().roi, None);
+    }
+
+    #[test]
+    fn test_clear_images_removes_files_and_metadata() {
+        let temp_dir = tempdir().unwrap();
+        let source_dir = temp_dir.path().join("source");
+        let images_dir = temp_dir.path().join("images");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        // 纯色图会被感知哈希判成同一张（哈希只看结构不看色值），
+        // 所以第二张用渐变图案。
+        let a = create_test_image_file_with_color(
+            &source_dir, "a.png", ImageFormat::Png, Rgb([10, 20, 30]));
+        let b = source_dir.join("b.png");
+        let mut pattern: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::new(100, 100);
+        for y in 0..100u32 {
+            for x in 0..100u32 {
+                let mut v = x.wrapping_mul(2654435761) ^ y.wrapping_mul(40503);
+                v ^= v >> 13;
+                v = v.wrapping_mul(1274126177);
+                v ^= v >> 16;
+                pattern.put_pixel(x, y, Rgb([v as u8, (v >> 8) as u8, (v >> 16) as u8]));
+            }
+        }
+        pattern.save_with_format(&b, image::ImageFormat::Png).unwrap();
+
+        let manager = ImageLibraryManager::new(&images_dir).unwrap();
+        manager.add_image(&a, "a".to_string()).unwrap();
+        manager.add_image(&b, "b".to_string()).unwrap();
+        assert_eq!(manager.count().unwrap(), 2);
+
+        let count_png = || {
+            fs::read_dir(&images_dir)
+                .unwrap()
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.path().extension().map(|ext| ext == "png").unwrap_or(false))
+                .count()
+        };
+        assert_eq!(count_png(), 2);
+
+        assert_eq!(manager.clear_images().unwrap(), 2);
+        assert_eq!(manager.count().unwrap(), 0);
+        assert_eq!(count_png(), 0);
+
+        // 元数据文件也清干净了
+        let reopened = ImageLibraryManager::new(&images_dir).unwrap();
+        assert_eq!(reopened.count().unwrap(), 0);
     }
 }

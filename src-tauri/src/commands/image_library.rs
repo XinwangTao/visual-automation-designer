@@ -115,8 +115,85 @@ pub fn list_images(
         .map_err(|e| AppError::InternalError(
             format!("Failed to lock image library manager: {}", e)
         ))?;
-    
+
     manager.list_images()
+}
+
+/// Attach (or clear) the screen region an image was captured from.
+#[tauri::command]
+pub fn set_image_roi(
+    state: State<'_, ImageLibraryState>,
+    id: String,
+    roi: Option<crate::models::Region>,
+) -> Result<bool> {
+    let image_id = parse_image_id(&id)?;
+
+    let manager = state.manager.lock()
+        .map_err(|e| AppError::InternalError(
+            format!("Failed to lock image library manager: {}", e)
+        ))?;
+
+    manager.set_image_roi(&image_id, roi)
+}
+
+/// Delete every image in the library. Destructive: the UI asks first.
+#[tauri::command]
+pub fn clear_image_library(
+    state: State<'_, ImageLibraryState>,
+) -> Result<usize> {
+    let manager = state.manager.lock()
+        .map_err(|e| AppError::InternalError(
+            format!("Failed to lock image library manager: {}", e)
+        ))?;
+
+    manager.clear_images()
+}
+
+/// Return a downscaled PNG of an image as a data URL.
+///
+/// The webview cannot read files from the library directory directly, so the
+/// picker and the library panel get their previews through here.
+#[tauri::command]
+pub fn get_image_thumbnail(
+    state: State<'_, ImageLibraryState>,
+    id: String,
+    max_size: Option<u32>,
+) -> Result<String> {
+    let image_id = parse_image_id(&id)?;
+
+    let path = {
+        let manager = state.manager.lock()
+            .map_err(|e| AppError::InternalError(
+                format!("Failed to lock image library manager: {}", e)
+            ))?;
+        manager
+            .get_image_path(&image_id)?
+            .ok_or_else(|| AppError::ImageNotFound(id.clone()))?
+    };
+
+    let image = image::open(&path)?;
+    let max = max_size.unwrap_or(320).clamp(32, 4096);
+    let longest = image.width().max(image.height());
+    let thumb = if longest > max {
+        let scale = max as f64 / longest as f64;
+        image.resize_exact(
+            ((image.width() as f64 * scale).round() as u32).max(1),
+            ((image.height() as f64 * scale).round() as u32).max(1),
+            image::imageops::FilterType::Triangle,
+        )
+    } else {
+        image
+    };
+
+    let mut buffer = Vec::new();
+    thumb
+        .write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png)
+        .map_err(|e| AppError::InternalError(format!("cannot encode thumbnail: {e}")))?;
+
+    Ok(format!(
+        "data:image/png;base64,{}",
+        general_purpose::STANDARD.encode(buffer)
+    ))
 }
 
 /// Get an image's metadata by ID.

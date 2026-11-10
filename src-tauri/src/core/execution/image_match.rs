@@ -112,6 +112,9 @@ impl Executor {
             .ok_or_else(|| AppError::ImageNotFound(image_id.to_string()))?
             .clone();
 
+        // 块本身没设 ROI 时，回落到图片自带的截取区域（图片库里可编辑）。
+        let roi = roi.or(metadata.roi);
+
         // Load the template image with panic handling
         let image_path = self.images_dir.join(&metadata.file_path);
         let template: image::DynamicImage = safe_execute(
