@@ -48,7 +48,14 @@ impl ImageLibraryManager {
         }
         
         let metadata_path = images_dir.join("library_metadata.json");
-        
+
+        // 原子保存会先删旧文件再 rename；若正好在这中间崩溃/断电，主文件不在了，
+        // 但临时文件里是最新数据——直接恢复它，否则会被当成空库，下次保存就真丢了。
+        let temp_path = metadata_path.with_extension("json.tmp");
+        if !metadata_path.exists() && temp_path.exists() {
+            let _ = fs::rename(&temp_path, &metadata_path);
+        }
+
         // Load existing library or create new one
         let library = Self::load_library(&metadata_path)?;
         
@@ -131,6 +138,18 @@ impl ImageLibraryManager {
         }
     }
     
+    /// 从磁盘重新读取元数据。
+    ///
+    /// GUI 和 `vadctl` 是两个进程，各自只在启动时读一次；不重读的话，后写的
+    /// 那个会拿自己的旧快照覆盖掉对方刚新增/删除的条目。
+    fn refresh_from_disk(&self) {
+        if let Ok(fresh) = Self::load_library(&self.metadata_path) {
+            if let Ok(mut library) = self.library.lock() {
+                *library = fresh;
+            }
+        }
+    }
+
     /// Save the library metadata to disk.
     ///
     /// 先写临时文件再 rename：GUI 和 `vadctl` 会同时读写同一个文件，
@@ -171,6 +190,7 @@ impl ImageLibraryManager {
     /// # Returns
     /// The created ImageMetadata
     pub fn add_image<P: AsRef<Path>>(&self, source_path: P, name: String) -> Result<ImageMetadata> {
+        self.refresh_from_disk();
         let source_path = source_path.as_ref();
         
         // Validate file exists
@@ -289,6 +309,7 @@ impl ImageLibraryManager {
         format: ImageFormat,
         allow_duplicate: bool,
     ) -> Result<ImageMetadata> {
+        self.refresh_from_disk();
         // Decode image from bytes
         let img = image::load_from_memory_with_format(
             bytes,
@@ -366,6 +387,7 @@ impl ImageLibraryManager {
     /// # Returns
     /// true if the image was removed, false if not found
     pub fn remove_image(&self, id: &ImageId) -> Result<bool> {
+        self.refresh_from_disk();
         let metadata = {
             let mut library = self.library.lock()
                 .map_err(|e| AppError::InternalError(
@@ -400,6 +422,7 @@ impl ImageLibraryManager {
     /// # Returns
     /// The image metadata, or None if not found
     pub fn get_image(&self, id: &ImageId) -> Result<Option<ImageMetadata>> {
+        self.refresh_from_disk();
         let library = self.library.lock()
             .map_err(|e| AppError::InternalError(
                 format!("Failed to lock library: {}", e)
@@ -413,6 +436,7 @@ impl ImageLibraryManager {
     /// # Returns
     /// A list of all image metadata
     pub fn list_images(&self) -> Result<Vec<ImageMetadata>> {
+        self.refresh_from_disk();
         let library = self.library.lock()
             .map_err(|e| AppError::InternalError(
                 format!("Failed to lock library: {}", e)
@@ -430,6 +454,7 @@ impl ImageLibraryManager {
     /// # Returns
     /// true if the image was renamed, false if not found
     pub fn rename_image(&self, id: &ImageId, new_name: String) -> Result<bool> {
+        self.refresh_from_disk();
         let success = {
             let mut library = self.library.lock()
                 .map_err(|e| AppError::InternalError(
@@ -455,6 +480,7 @@ impl ImageLibraryManager {
         id: &ImageId,
         roi: Option<crate::models::block::Region>,
     ) -> Result<bool> {
+        self.refresh_from_disk();
         let success = {
             let mut library = self.library.lock()
                 .map_err(|e| AppError::InternalError(
@@ -479,8 +505,12 @@ impl ImageLibraryManager {
 
     /// Remove every image and reset the metadata file.
     ///
+    /// 连没登记在元数据里的孤儿图片文件一起删——用户点「清空」期待的是目录变空，
+    /// 不是「元数据清空、文件还在」。
+    ///
     /// Destructive: the caller must confirm with the user first.
     pub fn clear_images(&self) -> Result<usize> {
+        self.refresh_from_disk();
         let removed = {
             let mut library = self.library.lock()
                 .map_err(|e| AppError::InternalError(
@@ -497,14 +527,33 @@ impl ImageLibraryManager {
             (removed, files)
         };
 
-        for file in &removed.1 {
+        // 先落盘再删文件（同上：宁可留孤儿文件，也不要元数据与磁盘互相矛盾）。
+        self.save_library()?;
+
+        let mut deleted = removed.1.clone();
+        // 顺带清掉没登记在元数据里的孤儿图片文件。
+        if let Ok(entries) = fs::read_dir(&self.images_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let is_image = path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "png" | "jpg" | "jpeg" | "bmp"))
+                    .unwrap_or(false);
+                if is_image {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        deleted.push(name.to_string());
+                    }
+                }
+            }
+        }
+        for file in &deleted {
             let path = self.images_dir.join(file);
             if path.exists() {
                 let _ = fs::remove_file(path);
             }
         }
-        // 先落盘再删文件（同上：宁可留孤儿文件，也不要元数据与磁盘互相矛盾）。
-        self.save_library()?;
+
         Ok(removed.0)
     }
 
@@ -531,6 +580,7 @@ impl ImageLibraryManager {
     /// # Returns
     /// The full path to the image file, or None if not found
     pub fn get_image_path(&self, id: &ImageId) -> Result<Option<PathBuf>> {
+        self.refresh_from_disk();
         let library = self.library.lock()
             .map_err(|e| AppError::InternalError(
                 format!("Failed to lock library: {}", e)
@@ -541,6 +591,7 @@ impl ImageLibraryManager {
     
     /// Get the count of images in the library.
     pub fn count(&self) -> Result<usize> {
+        self.refresh_from_disk();
         let library = self.library.lock()
             .map_err(|e| AppError::InternalError(
                 format!("Failed to lock library: {}", e)
@@ -565,6 +616,7 @@ impl ImageLibraryManager {
     /// need coverage (a second capture of the same button, say) can reuse the
     /// existing entry instead of failing.
     pub fn find_by_hash(&self, hash: &str) -> Result<Option<ImageMetadata>> {
+        self.refresh_from_disk();
         let library = self.library.lock()
             .map_err(|e| AppError::InternalError(
                 format!("Failed to lock library: {}", e)
@@ -849,5 +901,87 @@ mod tests {
         // 元数据文件也清干净了
         let reopened = ImageLibraryManager::new(&images_dir).unwrap();
         assert_eq!(reopened.count().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_two_managers_do_not_clobber_each_other() {
+        // GUI 和 vadctl 各自持有一份内存快照；不重读磁盘的话后写的会覆盖对方。
+        let temp_dir = tempdir().unwrap();
+        let source_dir = temp_dir.path().join("source");
+        let images_dir = temp_dir.path().join("images");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let a = create_test_image_file_with_color(
+            &source_dir, "a.png", ImageFormat::Png, Rgb([10, 20, 30]));
+        let b = source_dir.join("b.png");
+        let mut pattern: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::new(100, 100);
+        for y in 0..100u32 {
+            for x in 0..100u32 {
+                let mut v = x.wrapping_mul(2654435761) ^ y.wrapping_mul(40503);
+                v ^= v >> 13;
+                v = v.wrapping_mul(1274126177);
+                v ^= v >> 16;
+                pattern.put_pixel(x, y, Rgb([v as u8, (v >> 8) as u8, (v >> 16) as u8]));
+            }
+        }
+        pattern.save_with_format(&b, image::ImageFormat::Png).unwrap();
+
+        let first = ImageLibraryManager::new(&images_dir).unwrap();
+        first.add_image(&a, "a".to_string()).unwrap();
+
+        let second = ImageLibraryManager::new(&images_dir).unwrap();
+        second.add_image(&b, "b".to_string()).unwrap();
+
+        // first 还没重读过，但任何写操作/列举前都会重读，所以能看到 second 加的那条。
+        assert_eq!(first.list_images().unwrap().len(), 2);
+
+        let reopened = ImageLibraryManager::new(&images_dir).unwrap();
+        assert_eq!(reopened.list_images().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_flat_images_with_different_colors_are_both_kept() {
+        // dHash 只看结构，两张纯色图的哈希相同；去重不能因此把它们当成一张。
+        let temp_dir = tempdir().unwrap();
+        let images_dir = temp_dir.path().join("images");
+        let manager = ImageLibraryManager::new(&images_dir).unwrap();
+
+        let encode = |rgb: Rgb<u8>| {
+            let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_pixel(40, 20, rgb);
+            let mut buf = Vec::new();
+            img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+                .unwrap();
+            (img, buf)
+        };
+
+        let (red_img, red_bytes) = encode(Rgb([200, 30, 40]));
+        let (blue_img, blue_bytes) = encode(Rgb([30, 60, 200]));
+        assert_eq!(
+            crate::core::image_library::compute_image_hash(&image::DynamicImage::ImageRgb8(red_img)).unwrap(),
+            crate::core::image_library::compute_image_hash(&image::DynamicImage::ImageRgb8(blue_img)).unwrap(),
+            "前提：两张纯色图的 dHash 相同"
+        );
+
+        manager
+            .add_image_from_bytes(&red_bytes, "red".to_string(), ImageFormat::Png)
+            .unwrap();
+        manager
+            .add_image_from_bytes(&blue_bytes, "blue".to_string(), ImageFormat::Png)
+            .unwrap();
+        assert_eq!(manager.count().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_clear_images_removes_orphan_files() {
+        let temp_dir = tempdir().unwrap();
+        let images_dir = temp_dir.path().join("images");
+        fs::create_dir_all(&images_dir).unwrap();
+        // 不在元数据里的孤儿文件
+        let orphan = images_dir.join("orphan.png");
+        fs::write(&orphan, b"not really a png").unwrap();
+
+        let manager = ImageLibraryManager::new(&images_dir).unwrap();
+        assert_eq!(manager.clear_images().unwrap(), 0);
+        assert!(!orphan.exists(), "清空应把没登记的图片文件一起删掉");
     }
 }

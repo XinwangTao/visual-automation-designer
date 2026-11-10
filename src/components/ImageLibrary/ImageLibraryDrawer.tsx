@@ -111,7 +111,10 @@ export function ImageLibraryDrawer({
   }, []);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setActiveId(null);
+      return;
+    }
     setQuery('');
     setTestResult(null);
     void refresh();
@@ -177,6 +180,8 @@ export function ImageLibraryDrawer({
     return () => {
       disposed = true;
       disposers.forEach((dispose) => dispose());
+      // 抽屉中途关掉/组件卸载时也要复位，否则后续截屏都会被当成「只是重设 ROI」。
+      if (picking) endRoiPick();
     };
   }, [picking, activeId, pickedFrom, refresh, notifyChanged]);
 
