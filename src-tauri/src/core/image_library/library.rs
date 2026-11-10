@@ -447,7 +447,21 @@ impl ImageLibraryManager {
         
         Ok(library.has_duplicate(hash))
     }
-    
+
+    /// Find the stored image with the given hash, if any.
+    ///
+    /// The library refuses to store two identical images, so callers that only
+    /// need coverage (a second capture of the same button, say) can reuse the
+    /// existing entry instead of failing.
+    pub fn find_by_hash(&self, hash: &str) -> Result<Option<ImageMetadata>> {
+        let library = self.library.lock()
+            .map_err(|e| AppError::InternalError(
+                format!("Failed to lock library: {}", e)
+            ))?;
+
+        Ok(library.find_by_hash(hash).cloned())
+    }
+
     /// Find images by name (partial match, case-insensitive).
     pub fn find_by_name(&self, query: &str) -> Result<Vec<ImageMetadata>> {
         let library = self.library.lock()

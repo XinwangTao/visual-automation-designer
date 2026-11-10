@@ -211,6 +211,11 @@ impl ImageLibrary {
         self.images.iter().any(|img| img.hash == hash)
     }
 
+    /// Find the stored image with the given hash, if any.
+    pub fn find_by_hash(&self, hash: &str) -> Option<&ImageMetadata> {
+        self.images.iter().find(|img| img.hash == hash)
+    }
+
     /// Find images by name (partial match, case-insensitive)
     pub fn find_by_name(&self, query: &str) -> Vec<&ImageMetadata> {
         let query_lower = query.to_lowercase();

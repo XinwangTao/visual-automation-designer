@@ -720,13 +720,18 @@ fn cmd_capture_image(args: &Args) -> Result<i32, CliError> {
     let images_dir = dir.join("images");
     fs::create_dir_all(&images_dir)?;
     let manager = ImageLibraryManager::new(&images_dir)?;
-    let metadata = manager
-        .add_image_from_bytes(
-            buffer.get_ref(),
-            name,
-            crate::models::ImageFormat::Png,
-        )
-        .map_err(|e| CliError::runtime(format!("cannot add image: {e}")))?;
+    // 同一区域重复截取很常见：库里已有同图时复用，不当作错误。
+    let hash = crate::core::image_library::compute_image_hash(&cropped)?;
+    let metadata = match manager.find_by_hash(&hash)? {
+        Some(existing) => existing,
+        None => manager
+            .add_image_from_bytes(
+                buffer.get_ref(),
+                name,
+                crate::models::ImageFormat::Png,
+            )
+            .map_err(|e| CliError::runtime(format!("cannot add image: {e}")))?,
+    };
 
     println!(
         "{}",

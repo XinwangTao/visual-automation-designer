@@ -14,6 +14,7 @@ import {
   showScreenCaptureWindow,
   type ScreenPreview,
 } from '../../tauri/commands';
+import { toError } from '../../utils/error';
 import styles from './CaptureOverlay.module.css';
 
 interface Selection {
@@ -53,7 +54,7 @@ export function CaptureOverlay() {
         if (!cancelled) setPreview(next);
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : '截取屏幕失败');
+        if (!cancelled) setError(toError(err).message || '截取屏幕失败');
       });
     return () => {
       cancelled = true;
@@ -135,7 +136,7 @@ export function CaptureOverlay() {
       await saveScreenCapture({ name: defaultName(), ...region });
       // 后端保存后会关闭本窗口；这里不再 setState。
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存截图失败');
+      setError(toError(err).message || '保存截图失败');
       setSaving(false);
     }
   }, [region, saving]);

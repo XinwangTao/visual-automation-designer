@@ -197,7 +197,11 @@ pub fn add_image_from_screen_region(
         .manager
         .lock()
         .map_err(|e| AppError::InternalError(format!("Failed to lock image library: {e}")))?;
-    let metadata = manager.add_image_from_bytes(&bytes, name, ModelImageFormat::Png)?;
+    let hash = crate::core::image_library::compute_image_hash(&cropped)?;
+    let metadata = match manager.find_by_hash(&hash)? {
+        Some(existing) => existing,
+        None => manager.add_image_from_bytes(&bytes, name, ModelImageFormat::Png)?,
+    };
 
     Ok(CapturedImage {
         image: metadata,
@@ -527,7 +531,12 @@ pub fn save_screen_capture(
         .manager
         .lock()
         .map_err(|e| AppError::InternalError(format!("Failed to lock image library: {e}")))?;
-    let metadata = manager.add_image_from_bytes(&bytes, name, ModelImageFormat::Png)?;
+    // 同一块屏幕区域重复截取很常见：库里已有同图时直接复用，只更新 ROI。
+    let hash = crate::core::image_library::compute_image_hash(&cropped)?;
+    let metadata = match manager.find_by_hash(&hash)? {
+        Some(existing) => existing,
+        None => manager.add_image_from_bytes(&bytes, name, ModelImageFormat::Png)?,
+    };
     drop(manager);
 
     restore_main_window(&app, &state);

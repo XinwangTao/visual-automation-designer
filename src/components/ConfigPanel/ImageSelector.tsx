@@ -14,6 +14,7 @@ import {
   type ScreenPoint,
   type ScreenRegion,
 } from '../../tauri/commands';
+import { toError } from '../../utils/error';
 import styles from './ConfigPanel.module.css';
 
 export interface ImageSelectorProps {
@@ -210,7 +211,7 @@ export function ImageSelector({
           className="image-selector-capture-btn"
           onClick={() => {
             void openScreenCapture().catch((err) => {
-              alert(err instanceof Error ? err.message : '打开屏幕截取失败');
+              alert(toError(err).message || '打开屏幕截取失败');
             });
           }}
           disabled={loading}
