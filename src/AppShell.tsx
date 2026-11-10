@@ -24,7 +24,7 @@ import type { Flow as TauriFlow, ValidationErrorResponse } from './tauri/flow';
 import { validateFlow } from './tauri/flow';
 import { dryRunFlow } from './tauri/execution';
 import { listImages, onScreenCaptureClosed, onScreenCaptureOpened, onScreenCaptureSaved } from './tauri/commands';
-import { ImageLibraryModal } from './components/ImageLibrary/ImageLibraryModal';
+import { ImageLibraryDrawer } from './components/ImageLibrary/ImageLibraryDrawer';
 import { formatValidationResponse } from './validation/formatValidationMessage';
 import { getConnectionGuardValidation } from './validation/connectionGuards';
 import { isInputElement } from './utils/dom';
@@ -144,6 +144,10 @@ export function AppShell() {
 
   useEffect(() => {
     refreshImageCount();
+    // 上传/粘贴/删除都发生在配置面板里，用事件通知角标刷新。
+    const onChange = () => refreshImageCount();
+    window.addEventListener('vad:image-library-changed', onChange);
+    return () => window.removeEventListener('vad:image-library-changed', onChange);
   }, [refreshImageCount]);
 
   useEffect(() => {
@@ -1106,10 +1110,14 @@ export function AppShell() {
       {/* 全屏框选层：挂到 body，避免被侧栏/卡片的 backdrop-filter 变成 fixed 容器 */}
       {captureOverlayOpen && createPortal(<CaptureOverlay />, document.body)}
 
-      <ImageLibraryModal
+      <ImageLibraryDrawer
         open={imageLibraryOpen}
+        mode="manage"
         onClose={() => setImageLibraryOpen(false)}
-        onChanged={refreshImageCount}
+        onChanged={() => {
+          refreshImageCount();
+          window.dispatchEvent(new Event('vad:image-library-changed'));
+        }}
       />
     </div>
   );

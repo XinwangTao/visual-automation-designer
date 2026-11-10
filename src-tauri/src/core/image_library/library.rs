@@ -14,7 +14,6 @@ use tauri::{AppHandle, Manager};
 
 use crate::error::{AppError, Result};
 use crate::models::image::{ImageFormat, ImageId, ImageMetadata, ImageLibrary};
-use super::metadata::compute_hash_from_file;
 
 /// Manager for the image library, handling file system operations
 pub struct ImageLibraryManager {
@@ -133,15 +132,26 @@ impl ImageLibraryManager {
     }
     
     /// Save the library metadata to disk.
+    ///
+    /// 先写临时文件再 rename：GUI 和 `vadctl` 会同时读写同一个文件，
+    /// 直接截断覆盖时另一个进程可能读到半个 JSON，被当成损坏而整库清空。
     fn save_library(&self) -> Result<()> {
-        let library = self.library.lock()
-            .map_err(|e| AppError::InternalError(
-                format!("Failed to lock library: {}", e)
-            ))?;
-        
-        let content = serde_json::to_string_pretty(&*library)?;
-        fs::write(&self.metadata_path, content)?;
-        
+        let content = {
+            let library = self.library.lock()
+                .map_err(|e| AppError::InternalError(
+                    format!("Failed to lock library: {}", e)
+                ))?;
+            serde_json::to_string_pretty(&*library)?
+        };
+
+        let temp_path = self.metadata_path.with_extension("json.tmp");
+        fs::write(&temp_path, content)?;
+        // Windows 上 rename 覆盖目标需要先删（同目录、同一文件系统，失败窗口很小）。
+        if self.metadata_path.exists() {
+            let _ = fs::remove_file(&self.metadata_path);
+        }
+        fs::rename(&temp_path, &self.metadata_path)?;
+
         Ok(())
     }
     
@@ -190,7 +200,7 @@ impl ImageLibraryManager {
         let (width, height) = (img.width(), img.height());
         
         // Compute hash for deduplication
-        let hash = compute_hash_from_file(source_path)?;
+        let hash = super::metadata::compute_content_hash(&fs::read(source_path)?);
         
         // Check for duplicates
         {
@@ -255,6 +265,30 @@ impl ImageLibraryManager {
         name: String,
         format: ImageFormat,
     ) -> Result<ImageMetadata> {
+        self.add_image_from_bytes_inner(bytes, name, format, false)
+    }
+
+    /// 与 [`add_image_from_bytes`] 相同，但允许感知哈希撞车。
+    ///
+    /// 去重用的是 dHash（只看结构）：纯色图、结构相似的截图会得到同一个哈希。
+    /// 调用方在逐字节确认「不是同一张」之后必须能把它加进库，否则用户会莫名
+    /// 保存在失败，或者更糟——拿到另一张图的模板。
+    pub fn add_image_from_bytes_distinct(
+        &self,
+        bytes: &[u8],
+        name: String,
+        format: ImageFormat,
+    ) -> Result<ImageMetadata> {
+        self.add_image_from_bytes_inner(bytes, name, format, true)
+    }
+
+    fn add_image_from_bytes_inner(
+        &self,
+        bytes: &[u8],
+        name: String,
+        format: ImageFormat,
+        allow_duplicate: bool,
+    ) -> Result<ImageMetadata> {
         // Decode image from bytes
         let img = image::load_from_memory_with_format(
             bytes,
@@ -268,16 +302,16 @@ impl ImageLibraryManager {
         let (width, height) = (img.width(), img.height());
         
         // Compute hash for deduplication
-        let hash = super::metadata::compute_hash_from_bytes(bytes)?;
-        
+        let hash = super::metadata::compute_content_hash(bytes);
+
         // Check for duplicates
         {
             let library = self.library.lock()
                 .map_err(|e| AppError::InternalError(
                     format!("Failed to lock library: {}", e)
                 ))?;
-            
-            if library.has_duplicate(&hash) {
+
+            if !allow_duplicate && library.has_duplicate(&hash) {
                 return Err(AppError::ValidationError(
                     "An identical image already exists in the library".to_string()
                 ));
@@ -343,15 +377,15 @@ impl ImageLibraryManager {
         };
         
         if let Some(metadata) = metadata {
-            // Delete the file
+            // 先落盘再删文件：写盘失败时最多留个孤儿文件，绝不会出现
+            // 「元数据已删、文件还在」或反过来的半截状态。
+            self.save_library()?;
+
             let file_path = self.images_dir.join(&metadata.file_path);
             if file_path.exists() {
-                fs::remove_file(file_path)?;
+                let _ = fs::remove_file(file_path);
             }
-            
-            // Save library metadata
-            self.save_library()?;
-            
+
             Ok(true)
         } else {
             Ok(false)
@@ -469,8 +503,24 @@ impl ImageLibraryManager {
                 let _ = fs::remove_file(path);
             }
         }
+        // 先落盘再删文件（同上：宁可留孤儿文件，也不要元数据与磁盘互相矛盾）。
         self.save_library()?;
         Ok(removed.0)
+    }
+
+    /// 库里的这张图与给定字节是否完全相同。
+    ///
+    /// 感知哈希只判断「结构像」，判重之后必须再比一次字节，否则两张不同颜色的
+    /// 纯色按钮会被当成同一张，用户拿到的模板根本对不上。
+    /// 返回 `None` 表示元数据还在但文件已经没了（外部删除）。
+    pub fn image_bytes_match(&self, id: &ImageId, bytes: &[u8]) -> Result<Option<bool>> {
+        let Some(path) = self.get_image_path(id)? else {
+            return Ok(None);
+        };
+        match fs::read(&path) {
+            Ok(existing) => Ok(Some(existing == bytes)),
+            Err(_) => Ok(None),
+        }
     }
 
     /// Get the full path to an image file.

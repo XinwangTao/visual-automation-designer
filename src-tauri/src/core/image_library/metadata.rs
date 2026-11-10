@@ -5,11 +5,24 @@
 //!
 //! Validates: Requirements 1.2
 
-use image::{DynamicImage, io::Reader as ImageReader};
-use std::io::Cursor;
-use std::path::Path;
+use image::DynamicImage;
 
 use crate::error::Result;
+
+/// Compute a content hash used for deduplication (exact byte identity).
+///
+/// 去重必须判断「内容是否真的相同」：之前用的 dHash 只看相邻像素的亮度关系，
+/// 纯色图不论什么颜色都会得到同一个哈希，两张不同颜色的扁平按钮会被判成同一张，
+/// 用户最后拿到的模板根本对不上。感知哈希保留给相似度分析，去重改走内容哈希。
+pub fn compute_content_hash(bytes: &[u8]) -> String {
+    // FNV-1a 64：稳定、无依赖，本地题库去重足够。
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
 
 /// Compute a perceptual hash for an image for deduplication purposes.
 ///
@@ -48,39 +61,6 @@ pub fn compute_image_hash(image: &DynamicImage) -> Result<String> {
     
     // Convert to hexadecimal string
     Ok(format!("{:016x}", hash))
-}
-
-/// Compute a perceptual hash from raw image bytes.
-///
-/// # Arguments
-/// * `bytes` - The raw image data
-///
-/// # Returns
-/// A hexadecimal string representation of the hash
-pub fn compute_hash_from_bytes(bytes: &[u8]) -> Result<String> {
-    let image = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .map_err(|e| crate::error::AppError::ImageError(e.to_string()))?
-        .decode()
-        .map_err(|e| crate::error::AppError::ImageError(e.to_string()))?;
-    
-    compute_image_hash(&image)
-}
-
-/// Compute a perceptual hash from an image file.
-///
-/// # Arguments
-/// * `path` - Path to the image file
-///
-/// # Returns
-/// A hexadecimal string representation of the hash
-pub fn compute_hash_from_file<P: AsRef<Path>>(path: P) -> Result<String> {
-    let image = ImageReader::open(path)
-        .map_err(|e| crate::error::AppError::ImageError(e.to_string()))?
-        .decode()
-        .map_err(|e| crate::error::AppError::ImageError(e.to_string()))?;
-    
-    compute_image_hash(&image)
 }
 
 /// Calculate the Hamming distance between two hashes.

@@ -505,67 +505,107 @@ pub fn save_screen_capture(
         ));
     }
 
-    let frozen = {
-        let mut session = state
-            .session
+    // 先把活干完再取走会话：任一环节失败都要么能重试，要么能干净退出。
+    // 之前的实现先 take() 再校验，越界/写盘失败会让窗口永远停在无边框全屏，
+    // 而且 Alt+F4 会直接退出 app（is_capturing 已经为 false）。
+    let result = (|| -> Result<CapturedImage> {
+        let (image_width, image_height, origin_x, origin_y) = {
+            let session = state
+                .session
+                .lock()
+                .map_err(|e| AppError::InternalError(format!("Failed to lock capture state: {e}")))?;
+            let frozen = session
+                .as_ref()
+                .ok_or_else(|| AppError::InternalError("no frozen desktop capture".to_string()))?;
+            (
+                frozen.image.width(),
+                frozen.image.height(),
+                frozen.origin_x,
+                frozen.origin_y,
+            )
+        };
+
+        let (ux, uy) = (x.max(0) as u32, y.max(0) as u32);
+        if x < 0
+            || y < 0
+            || width > image_width.saturating_sub(ux)
+            || height > image_height.saturating_sub(uy)
+        {
+            return Err(AppError::ValidationError(format!(
+                "capture region ({x},{y},{width},{height}) is outside the frozen desktop"
+            )));
+        }
+
+        let cropped = {
+            let session = state
+                .session
+                .lock()
+                .map_err(|e| AppError::InternalError(format!("Failed to lock capture state: {e}")))?;
+            let frozen = session
+                .as_ref()
+                .ok_or_else(|| AppError::InternalError("no frozen desktop capture".to_string()))?;
+            frozen.image.crop_imm(ux, uy, width, height)
+        };
+        let bytes = encode_png(&cropped)?;
+        let manager = image_library_state
+            .manager
             .lock()
-            .map_err(|e| AppError::InternalError(format!("Failed to lock capture state: {e}")))?;
-        session
-            .take()
-            .ok_or_else(|| AppError::InternalError("no frozen desktop capture".to_string()))?
-    };
-
-    if x < 0
-        || y < 0
-        || x as u32 + width > frozen.image.width()
-        || y as u32 + height > frozen.image.height()
-    {
-        return Err(AppError::ValidationError(format!(
-            "capture region ({x},{y},{width},{height}) is outside the frozen desktop"
-        )));
-    }
-
-    let cropped = frozen.image.crop_imm(x as u32, y as u32, width, height);
-    let bytes = encode_png(&cropped)?;
-    let manager = image_library_state
-        .manager
-        .lock()
-        .map_err(|e| AppError::InternalError(format!("Failed to lock image library: {e}")))?;
-    // 同一块屏幕区域重复截取很常见：库里已有同图时直接复用，只更新 ROI。
-    let hash = crate::core::image_library::compute_image_hash(&cropped)?;
-    let mut metadata = match manager.find_by_hash(&hash)? {
-        Some(existing) => existing,
-        None => manager.add_image_from_bytes(&bytes, name, ModelImageFormat::Png)?,
-    };
-    let screen_x = frozen.origin_x + x;
-    let screen_y = frozen.origin_y + y;
-    let region = crate::models::Region {
-        x: screen_x,
-        y: screen_y,
-        width,
-        height,
-    };
-    // 把这次的屏幕位置写进图片本身：图片库能可视化编辑，块没设 ROI 时也用它。
-    manager.set_image_roi(&metadata.id, Some(region))?;
-    metadata.set_roi(Some(region));
-    drop(manager);
-
-    restore_main_window(&app, &state);
-
-    let captured = CapturedImage {
-        image: metadata,
-        roi: ScreenRegion {
+            .map_err(|e| AppError::InternalError(format!("Failed to lock image library: {e}")))?;
+        // 同一块屏幕区域重复截取很常见：库里已有同图（内容哈希一致）时直接复用，
+        // 只更新 ROI。元数据还在但文件被外部删掉时，先清掉悬空条目再加。
+        let hash = crate::core::image_library::compute_content_hash(&bytes);
+        let mut metadata = match manager.find_by_hash(&hash)? {
+            Some(existing) => match manager.image_bytes_match(&existing.id, &bytes)? {
+                Some(true) => existing,
+                Some(false) => manager.add_image_from_bytes_distinct(
+                    &bytes,
+                    name.clone(),
+                    ModelImageFormat::Png,
+                )?,
+                None => {
+                    let _ = manager.remove_image(&existing.id);
+                    manager.add_image_from_bytes(&bytes, name.clone(), ModelImageFormat::Png)?
+                }
+            },
+            None => manager.add_image_from_bytes(&bytes, name, ModelImageFormat::Png)?,
+        };
+        let screen_x = origin_x + x;
+        let screen_y = origin_y + y;
+        let region = crate::models::Region {
             x: screen_x,
             y: screen_y,
             width,
             height,
-        },
-        center: ScreenPoint {
-            x: screen_x + (width / 2) as i32,
-            y: screen_y + (height / 2) as i32,
-        },
-    };
-    let _ = app.emit("screen-capture-closed", ());
+        };
+        // 把这次的屏幕位置写进图片本身：图片库能可视化编辑，块没设 ROI 时也用它。
+        manager.set_image_roi(&metadata.id, Some(region))?;
+        metadata.set_roi(Some(region));
+        drop(manager);
+
+        Ok(CapturedImage {
+            image: metadata,
+            roi: ScreenRegion {
+                x: screen_x,
+                y: screen_y,
+                width,
+                height,
+            },
+            center: ScreenPoint {
+                x: screen_x + (width / 2) as i32,
+                y: screen_y + (height / 2) as i32,
+            },
+        })
+    })();
+
+    // 无论成功失败都收尾：清空会话、恢复窗口、通知前端。
+    if let Ok(mut session) = state.session.lock() {
+        *session = None;
+    }
+    restore_main_window(&app, &state);
+    let frozen_desktop_gone = app.emit("screen-capture-closed", ());
+
+    let captured = result?;
+    let _ = frozen_desktop_gone;
     let _ = app.emit("screen-capture-saved", &captured);
     Ok(captured)
 }

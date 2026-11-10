@@ -117,6 +117,7 @@ fn probe_image_target(
         let x = (roi.x - capture.origin_x).max(0) as u32;
         let y = (roi.y - capture.origin_y).max(0) as u32;
         if x < capture.width && y < capture.height {
+            // 夹住左上角之后，宽高也要跟着收缩，否则报告出来的搜索区域比实际大。
             Some(SearchRegion::new(
                 x,
                 y,

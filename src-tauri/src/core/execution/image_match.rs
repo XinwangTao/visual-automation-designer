@@ -103,6 +103,29 @@ impl Executor {
         threshold: Option<f64>,
         roi: Option<Region>,
     ) -> Result<(bool, (i32, i32), f64)> {
+        // 块自己设了 ROI 就照办；没设时图片自带的截取区域只是「省时间」的提示，
+        // 不能变成硬约束——目标被挪走/换显示器后，硬约束会让所有屏幕都被跳过。
+        let image_roi = self.image_library.get(image_id).and_then(|m| m.roi);
+        let effective = roi.or(image_roi);
+
+        let result = self
+            .find_image_on_screen_in(image_id, threshold, effective)
+            .await?;
+
+        if result.0 || roi.is_some() || image_roi.is_none() {
+            return Ok(result);
+        }
+
+        // 图片 ROI 内没找到：退回全屏再试一次（这次才是「找不到」）。
+        self.find_image_on_screen_in(image_id, threshold, None).await
+    }
+
+    async fn find_image_on_screen_in(
+        &mut self,
+        image_id: &ImageId,
+        threshold: Option<f64>,
+        roi: Option<Region>,
+    ) -> Result<(bool, (i32, i32), f64)> {
         let start = Instant::now();
 
         // Get image metadata
@@ -111,9 +134,6 @@ impl Executor {
             .get(image_id)
             .ok_or_else(|| AppError::ImageNotFound(image_id.to_string()))?
             .clone();
-
-        // 块本身没设 ROI 时，回落到图片自带的截取区域（图片库里可编辑）。
-        let roi = roi.or(metadata.roi);
 
         // Load the template image with panic handling
         let image_path = self.images_dir.join(&metadata.file_path);

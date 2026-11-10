@@ -154,7 +154,7 @@ pub fn clear_image_library(
 /// The webview cannot read files from the library directory directly, so the
 /// picker and the library panel get their previews through here.
 #[tauri::command]
-pub fn get_image_thumbnail(
+pub async fn get_image_thumbnail(
     state: State<'_, ImageLibraryState>,
     id: String,
     max_size: Option<u32>,
@@ -171,8 +171,12 @@ pub fn get_image_thumbnail(
             .ok_or_else(|| AppError::ImageNotFound(id.clone()))?
     };
 
-    let image = image::open(&path)?;
-    let max = max_size.unwrap_or(320).clamp(32, 4096);
+    // 解码是 CPU 密集的（库里可能是 4K 截图），放 blocking 线程，别占 IPC 线程。
+    let (image, max) = tauri::async_runtime::spawn_blocking(move || {
+        Ok::<_, AppError>((image::open(&path)?, max_size.unwrap_or(320).clamp(32, 4096)))
+    })
+    .await
+    .map_err(|e| AppError::InternalError(format!("thumbnail task failed: {e}")))??;
     let longest = image.width().max(image.height());
     let thumb = if longest > max {
         let scale = max as f64 / longest as f64;

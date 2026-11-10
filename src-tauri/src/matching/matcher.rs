@@ -25,6 +25,8 @@ use super::cache::{CacheKey, MatchCache, MatchCacheConfig};
 const PYRAMID_MIN_TEMPLATE: u32 = 12;
 /// Upper bound on the downscale factor for the coarse pass.
 const PYRAMID_MAX_FACTOR: u32 = 16;
+/// 精修阶段允许的乘加次数（≈ 位置数 × 模板面积）。超过就抽稀扫描。
+const REFINE_OP_BUDGET: f64 = 30_000_000.0;
 
 /// Result of an image match operation
 #[derive(Debug, Clone)]
@@ -469,11 +471,14 @@ impl ImageMatcher {
         // 全屏逐像素扫描是 O(位置 × 模板像素)：2560x1440 配 200x100 模板约 600 亿
         // 次乘加，既跑不完也付不起「跳着扫」。旧实现直接按步长 6 扫描，真实位置
         // (700,400) 永远采不到，精修又只在粗搜最优点附近做，结果就是明明一模一样
-        // 却只报 26%。这里先在缩小的图上找候选，再只把候选附近的小窗口裁剪出来
-        // 做全分辨率校验——整幅大图的灰度/积分图都不用建。
+        // 却只报 26%。这里先在缩小的图上找候选，再把候选邻域裁出来做全分辨率校验；
+        // 邻域内按预算抽稀（模板越大单点越贵），最后爬山收敛到像素级峰值。
+        let mut near_miss = -2.0f64;
+        let mut pyramid_ran = false;
         if let Some((seed_x, seed_y, factor)) =
             self.pyramid_seed(region_image, needle, budget.mul_f64(0.5))
         {
+            pyramid_ran = true;
             let margin = factor * 2 + 4;
             let win_x = seed_x.saturating_sub(margin);
             let win_y = seed_y.saturating_sub(margin);
@@ -486,11 +491,17 @@ impl ImageMatcher {
                 let max_x = win_w - needle_width;
                 let max_y = win_h - needle_height;
 
+                // 单次 NCC 的代价正比于模板面积；据此反推可接受的扫描步长。
+                let area = (needle_width as f64 * needle_height as f64).max(1.0);
+                let side = (2 * margin + 1) as f64;
+                let wanted = (REFINE_OP_BUDGET / area).max(9.0).sqrt();
+                let step = ((side / wanted).ceil() as u32).max(1);
+
                 let mut best_x = 0u32;
                 let mut best_y = 0u32;
                 let mut best_score = -2.0f64;
-                for y in 0..=max_y {
-                    for x in 0..=max_x {
+                for y in (0..=max_y).step_by(step as usize) {
+                    for x in (0..=max_x).step_by(step as usize) {
                         let score =
                             self.calculate_ncc_at(&win_gray, &win_sat, &needle_cache, x, y);
                         if score > best_score {
@@ -500,6 +511,25 @@ impl ImageMatcher {
                         }
                     }
                 }
+
+                // 有希望时再爬山到像素级，避免抽稀步长带来的偏移。
+                if best_score >= self.config.threshold * 0.5 {
+                    let (rx2, ry2, rs) = self.refine_peak(
+                        &win_gray,
+                        &win_sat,
+                        &needle_cache,
+                        best_x,
+                        best_y,
+                        max_x,
+                        max_y,
+                        step,
+                    );
+                    best_x = rx2;
+                    best_y = ry2;
+                    best_score = rs;
+                }
+                near_miss = best_score;
+
                 if best_score >= self.config.threshold {
                     return MatchResult::found(
                         rx + win_x + best_x + needle_width / 2,
@@ -510,6 +540,17 @@ impl ImageMatcher {
                     );
                 }
             }
+        }
+
+        // 金字塔已经在缩小的整幅图上做过一遍无跳步的全域扫描，候选邻域也用
+        // 全分辨率校验过了。再跑一次旧的「跳步全扫」既不能补回漏检（它同样跳步），
+        // 还会把「没找到」从 1s 拖到 4-20s——而等待目标出现恰恰是最常见的场景。
+        if pyramid_ran {
+            return MatchResult {
+                found: false,
+                confidence: if near_miss > -2.0 { Some(near_miss) } else { None },
+                ..MatchResult::not_found()
+            };
         }
 
         let (gray, sat) = Self::precompute_haystack(region_image);
@@ -633,6 +674,60 @@ impl ImageMatcher {
     /// Returns the best position scaled back into full-resolution coordinates
     /// plus the factor that was used, so the caller can size its refinement
     /// window to the residual error.
+    /// 从抽稀扫描的最优点出发，按逐步减半的步长爬山，收敛到像素级峰值。
+    ///
+    /// NCC 在真实位置附近是光滑的，所以每轮只看 8 个邻居，代价与窗口大小无关
+    /// ——大模板也不会因为「窗口面积 × 模板面积」而爆掉。
+    fn refine_peak(
+        &self,
+        gray: &GrayBuffer,
+        sat: &IntegralImage,
+        needle_cache: &NeedleCache,
+        start_x: u32,
+        start_y: u32,
+        max_x: u32,
+        max_y: u32,
+        step0: u32,
+    ) -> (u32, u32, f64) {
+        let mut best_x = start_x;
+        let mut best_y = start_y;
+        let mut best = self.calculate_ncc_at(gray, sat, needle_cache, best_x, best_y);
+        let mut step = step0.max(1);
+        loop {
+            let mut improved = false;
+            for (dx, dy) in [
+                (-1i32, 0i32),
+                (1, 0),
+                (0, -1),
+                (0, 1),
+                (-1, -1),
+                (1, -1),
+                (-1, 1),
+                (1, 1),
+            ] {
+                let nx = best_x as i64 + dx as i64 * step as i64;
+                let ny = best_y as i64 + dy as i64 * step as i64;
+                if nx < 0 || ny < 0 || nx as u32 > max_x || ny as u32 > max_y {
+                    continue;
+                }
+                let score = self.calculate_ncc_at(gray, sat, needle_cache, nx as u32, ny as u32);
+                if score > best {
+                    best = score;
+                    best_x = nx as u32;
+                    best_y = ny as u32;
+                    improved = true;
+                }
+            }
+            if !improved {
+                if step == 1 {
+                    break;
+                }
+                step = (step / 2).max(1);
+            }
+        }
+        (best_x, best_y, best)
+    }
+
     fn pyramid_seed(
         &self,
         haystack: &DynamicImage,
@@ -643,17 +738,16 @@ impl ImageMatcher {
         let (nw, nh) = (needle.width(), needle.height());
         // Small searches are already cheap; below this the downscale would only
         // cost accuracy.
-        if hw < 800 || hh < 600 || nw < 40 || nh < 40 {
+        // 16px 起就值得分层：30x30 这类文字条模板走逐像素全扫要几十亿次运算，
+        // 3s 预算只会扫完顶部几行，目标在下面必然漏检。
+        if hw < 800 || hh < 600 || nw < 16 || nh < 16 {
             return None;
         }
 
         // Keep the coarse template around `PYRAMID_MIN_TEMPLATE` px on its
         // short side: big enough to stay discriminative, small enough that the
         // scan is cheap.
-        let factor = (nw.min(nh) / PYRAMID_MIN_TEMPLATE).clamp(1, PYRAMID_MAX_FACTOR);
-        if factor < 2 {
-            return None;
-        }
+        let factor = (nw.min(nh) / PYRAMID_MIN_TEMPLATE).clamp(2, PYRAMID_MAX_FACTOR);
 
         let sw = (hw / factor).max(1);
         let sh = (hh / factor).max(1);
