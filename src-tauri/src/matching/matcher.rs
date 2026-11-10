@@ -441,6 +441,13 @@ impl ImageMatcher {
             },
             None => (0, 0, haystack_width, haystack_height),
         };
+        // 用户把 ROI 框得比模板还小时不能直接判「找不到」：以 ROI 中心为准
+        // 扩到模板尺寸再搜，否则会得到一个永远失败的配置。
+        let (rx, ry, rw, rh) = Self::region_fits_template(
+            (rx, ry, rw, rh),
+            (needle_width, needle_height),
+            (haystack_width, haystack_height),
+        );
 
         if needle_width > rw || needle_height > rh {
             return MatchResult::not_found();
@@ -670,6 +677,27 @@ impl ImageMatcher {
             return None;
         }
         Some((best_x * factor, best_y * factor, factor))
+    }
+
+    /// 搜索区域小于模板时，以它的中心为准扩到模板尺寸，并夹在图像范围内。
+    fn region_fits_template(
+        region: (u32, u32, u32, u32),
+        needle: (u32, u32),
+        haystack: (u32, u32),
+    ) -> (u32, u32, u32, u32) {
+        let (rx, ry, rw, rh) = region;
+        let (nw, nh) = needle;
+        let (hw, hh) = haystack;
+        if rw >= nw && rh >= nh {
+            return region;
+        }
+        let w = rw.max(nw).min(hw);
+        let h = rh.max(nh).min(hh);
+        let cx = rx.saturating_add(rw / 2);
+        let cy = ry.saturating_add(rh / 2);
+        let nx = cx.saturating_sub(w / 2).min(hw.saturating_sub(w));
+        let ny = cy.saturating_sub(h / 2).min(hh.saturating_sub(h));
+        (nx, ny, w, h)
     }
 
     fn template_match_bounded(

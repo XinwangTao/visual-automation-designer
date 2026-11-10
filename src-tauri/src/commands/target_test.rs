@@ -76,7 +76,7 @@ pub async fn test_image_target(
         Uuid::parse_str(&image_id)
             .map_err(|_| AppError::ValidationError(format!("invalid image id: {image_id}")))?,
     );
-    let (path, name) = {
+    let (path, name, image_roi) = {
         let manager = image_library_state
             .manager
             .lock()
@@ -87,8 +87,10 @@ pub async fn test_image_target(
         let path = manager
             .get_image_path(&id)?
             .ok_or_else(|| AppError::ImageNotFound(image_id.clone()))?;
-        (path, metadata.name)
+        (path, metadata.name.clone(), metadata.roi)
     };
+    // 和执行保持一致：块没设 ROI 时用图片自带的截取区域。
+    let roi = roi.or(image_roi);
 
     tauri::async_runtime::spawn_blocking(move || {
         probe_image_target(&app, &path, name, threshold, roi)
