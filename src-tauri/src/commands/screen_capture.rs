@@ -197,7 +197,7 @@ pub fn add_image_from_screen_region(
         .manager
         .lock()
         .map_err(|e| AppError::InternalError(format!("Failed to lock image library: {e}")))?;
-    let hash = crate::core::image_library::compute_image_hash(&cropped)?;
+    let hash = crate::core::image_library::compute_content_hash(&bytes);
     let metadata = match manager.find_by_hash(&hash)? {
         Some(existing) => existing,
         None => manager.add_image_from_bytes(&bytes, name, ModelImageFormat::Png)?,
@@ -435,6 +435,40 @@ pub fn show_screen_capture_window(app: AppHandle) -> Result<()> {
     Ok(())
 }
 
+/// 虚拟桌面的边界（物理像素），供图片库画出 ROI 的相对位置。
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopBounds {
+    pub origin_x: i32,
+    pub origin_y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[tauri::command]
+pub fn get_desktop_bounds() -> Result<DesktopBounds> {
+    let monitors = ScreenCapture::list_monitors()?;
+    let first = monitors
+        .first()
+        .ok_or_else(|| AppError::InternalError("no monitors reported".to_string()))?;
+    let mut min_x = first.x;
+    let mut min_y = first.y;
+    let mut max_x = first.x + first.width as i32;
+    let mut max_y = first.y + first.height as i32;
+    for monitor in &monitors[1..] {
+        min_x = min_x.min(monitor.x);
+        min_y = min_y.min(monitor.y);
+        max_x = max_x.max(monitor.x + monitor.width as i32);
+        max_y = max_y.max(monitor.y + monitor.height as i32);
+    }
+    Ok(DesktopBounds {
+        origin_x: min_x,
+        origin_y: min_y,
+        width: (max_x - min_x).max(1) as u32,
+        height: (max_y - min_y).max(1) as u32,
+    })
+}
+
 /// Return a (optionally scaled) PNG of the frozen desktop for the picker.
 #[tauri::command]
 pub fn get_screen_capture_preview(
@@ -602,11 +636,13 @@ pub fn save_screen_capture(
         *session = None;
     }
     restore_main_window(&app, &state);
-    let frozen_desktop_gone = app.emit("screen-capture-closed", ());
 
+    // 必须先发 saved 再发 closed：抽屉里的「重设 ROI」监听靠 closed 复位意图标记，
+    // 先发 closed 会让随后到达的 saved 被图片选择器当成「换图」，把积木块绑到
+    // 那张即将被删除的临时图上。
     let captured = result?;
-    let _ = frozen_desktop_gone;
     let _ = app.emit("screen-capture-saved", &captured);
+    let _ = app.emit("screen-capture-closed", ());
     Ok(captured)
 }
 

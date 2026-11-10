@@ -305,6 +305,52 @@ export function ClickConfigUI({ config, onChange }: ConfigUIProps) {
               <span className={styles.blockConfigHint}>执行时只在该虚拟屏幕区域内匹配图片</span>
             </div>
           )}
+          <div className={styles.blockConfigField}>
+            <label className={styles.blockConfigLabel} htmlFor="click-button">鼠标按键</label>
+            <select
+              id="click-button"
+              className={styles.blockConfigInput}
+              value={(mode as { button?: string }).button ?? 'left'}
+              onChange={(e) =>
+                onChange({
+                  ...config,
+                  mode: { ...(mode as object), button: e.target.value } as typeof mode,
+                })
+              }
+              data-testid="click-button"
+            >
+              <option value="left">左键</option>
+              <option value="right">右键</option>
+              <option value="middle">中键</option>
+            </select>
+          </div>
+          <div className={styles.blockConfigField}>
+            <label className={styles.blockConfigLabel}>
+              <input
+                type="checkbox"
+                checked={(mode as { fallbackClick?: boolean }).fallbackClick ?? false}
+                onChange={(e) =>
+                  onChange({
+                    ...config,
+                    mode: { ...(mode as object), fallbackClick: e.target.checked } as typeof mode,
+                  })
+                }
+                data-testid="click-fallback"
+              />{' '}
+              识别失败时点击中心坐标（兜底）
+            </label>
+            <span className={styles.blockConfigHint}>
+              {(() => {
+                const roi = (mode as { roi?: { x: number; y: number; width: number; height: number } }).roi;
+                if (!roi) {
+                  return '没有 ROI 时，兜底坐标取图片自带的截取位置中心（可在图片库里查看/修改）';
+                }
+                const cx = roi.x + Math.floor(roi.width / 2);
+                const cy = roi.y + Math.floor(roi.height / 2);
+                return `兜底坐标：(${cx}, ${cy})，即当前 ROI 的中心`;
+              })()}
+            </span>
+          </div>
         </>
       )}
 

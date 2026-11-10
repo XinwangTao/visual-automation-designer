@@ -173,6 +173,18 @@ export async function clearImageLibrary(): Promise<number> {
   return invoke<number>('clear_image_library');
 }
 
+/** 虚拟桌面边界（物理像素），用于图片库里画出 ROI 的相对位置。 */
+export interface DesktopBounds {
+  originX: number;
+  originY: number;
+  width: number;
+  height: number;
+}
+
+export async function getDesktopBounds(): Promise<DesktopBounds> {
+  return invoke<DesktopBounds>('get_desktop_bounds');
+}
+
 /**
  * 取图片缩略图的 data URL。
  *

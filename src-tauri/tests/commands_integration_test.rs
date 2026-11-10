@@ -388,7 +388,7 @@ fn test_complete_workflow() {
         BlockType::Action { action: ActionType::Click },
         BlockPosition::new(100.0, 100.0),
         BlockConfig::Click {
-            mode: ClickMode::Image { image_id: Some(image_id.clone()), threshold: None, roi: None },
+            mode: ClickMode::Image { image_id: Some(image_id.clone()), threshold: None, roi: None, fallback_click: None, button: None },
             count: 1,
         },
     );
@@ -462,7 +462,7 @@ fn test_block_config_serialization() {
             count: 1,
         },
         BlockConfig::Click {
-            mode: ClickMode::Image { image_id: Some(ImageId::new()), threshold: None, roi: None },
+            mode: ClickMode::Image { image_id: Some(ImageId::new()), threshold: None, roi: None, fallback_click: None, button: None },
             count: 2,
         },
         BlockConfig::WaitImage {

@@ -497,11 +497,7 @@ mod tests {
             },
             crate::models::block::BlockPosition::new(0.0, 0.0),
             BlockConfig::Click {
-                mode: ClickMode::Image {
-                    image_id: Some(crate::models::image::ImageId(uuid::Uuid::nil())),
-                    threshold: None,
-                    roi: None,
-                },
+                mode: ClickMode::Image { image_id: Some(crate::models::image::ImageId(uuid::Uuid::nil())), threshold: None, roi: None, fallback_click: None, button: None },
                 count: 1,
             },
         );
@@ -570,11 +566,7 @@ mod tests {
             },
             crate::models::block::BlockPosition::new(0.0, 0.0),
             BlockConfig::Click {
-                mode: ClickMode::Image {
-                    image_id: Some(crate::models::image::ImageId::new()),
-                    threshold: None,
-                    roi: None,
-                },
+                mode: ClickMode::Image { image_id: Some(crate::models::image::ImageId::new()), threshold: None, roi: None, fallback_click: None, button: None },
                 count: 1,
             },
         );
@@ -594,7 +586,7 @@ mod tests {
             },
             crate::models::block::BlockPosition::new(0.0, 0.0),
             BlockConfig::Click {
-                mode: ClickMode::Image { image_id: None, threshold: None, roi: None },
+                mode: ClickMode::Image { image_id: None, threshold: None, roi: None, fallback_click: None, button: None },
                 count: 1,
             },
         );

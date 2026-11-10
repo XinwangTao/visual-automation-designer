@@ -84,6 +84,7 @@ export function useImageLibrary(): UseImageLibraryReturn {
       const defaultName = getFileName(filePath);
       const metadata = await tauriAddImage(filePath, defaultName);
       setImages((prev) => [...prev, metadata]);
+      notifyLibraryChanged();
       return metadata;
     });
   }, []);
@@ -140,6 +141,7 @@ export function useImageLibrary(): UseImageLibraryReturn {
       const imageName = name || getFileName(filePath);
       const metadata = await tauriAddImage(filePath, imageName);
       setImages((prev) => [...prev, metadata]);
+      notifyLibraryChanged();
       return metadata;
     });
   }, []);
@@ -167,6 +169,7 @@ export function useImageLibrary(): UseImageLibraryReturn {
           const defaultName = `pasted_image_${Date.now()}`;
           const metadata = await tauriAddImageFromBase64(base64Data, defaultName);
           setImages((prev) => [...prev, metadata]);
+          notifyLibraryChanged();
           return metadata;
         }
       }

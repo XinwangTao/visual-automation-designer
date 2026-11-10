@@ -9,9 +9,10 @@
  * 摊开逐张处理。
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
   clearImageLibrary,
+  getDesktopBounds,
   listImages,
   onScreenCaptureClosed,
   onScreenCaptureSaved,
@@ -22,6 +23,7 @@ import {
   testImageTarget,
 } from '../../tauri/commands';
 import type { ImageMetadata, ScreenRect } from '../../types/image';
+import type { DesktopBounds } from '../../tauri/commands';
 import { beginRoiPick, endRoiPick } from '../../tauri/captureIntent';
 import { toError } from '../../utils/error';
 import { ConfirmDialog } from '../common/ConfirmDialog';
@@ -74,6 +76,26 @@ function parseDraft(draft: RoiDraft): ScreenRect | null {
   };
 }
 
+/** ROI 在桌面缩略图上的百分比位置。 */
+function roiStyle(roi: ScreenRect, bounds: DesktopBounds): CSSProperties {
+  const left = ((roi.x - bounds.originX) / bounds.width) * 100;
+  const top = ((roi.y - bounds.originY) / bounds.height) * 100;
+  return {
+    left: `${left}%`,
+    top: `${top}%`,
+    // 小目标在缩略图上会小到看不见，给个最小可点击尺寸。
+    width: `${Math.max(2.5, (roi.width / bounds.width) * 100)}%`,
+    height: `${Math.max(3.5, (roi.height / bounds.height) * 100)}%`,
+  };
+}
+
+function centrestyle(roi: ScreenRect, bounds: DesktopBounds): CSSProperties {
+  return {
+    left: `${((roi.x + roi.width / 2 - bounds.originX) / bounds.width) * 100}%`,
+    top: `${((roi.y + roi.height / 2 - bounds.originY) / bounds.height) * 100}%`,
+  };
+}
+
 export function ImageLibraryDrawer({
   open,
   mode = 'manage',
@@ -94,6 +116,7 @@ export function ImageLibraryDrawer({
   const [picking, setPicking] = useState(false);
   const [pickedFrom, setPickedFrom] = useState<Set<string> | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [bounds, setBounds] = useState<DesktopBounds | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -118,6 +141,10 @@ export function ImageLibraryDrawer({
     setQuery('');
     setTestResult(null);
     void refresh();
+    // 桌面边界用于把 ROI 画成相对位置（只读显示器信息，不截屏）。
+    void getDesktopBounds()
+      .then(setBounds)
+      .catch(() => setBounds(null));
   }, [open, refresh]);
 
   const active = useMemo(
@@ -315,7 +342,11 @@ export function ImageLibraryDrawer({
   if (!open) return null;
 
   return (
-    <div className={styles.overlay} onClick={onClose} role="presentation">
+    <div
+      className={`${styles.overlay} ${picking ? styles.overlayHidden : ''}`}
+      onClick={onClose}
+      role="presentation"
+    >
       <aside
         className={styles.drawer}
         role="dialog"
@@ -405,6 +436,39 @@ export function ImageLibraryDrawer({
                       className={styles.previewImg}
                     />
                   </div>
+
+                  {image.roi ? (
+                    <div className={styles.mapBlock}>
+                      {bounds && (
+                        <div className={styles.map} data-testid="image-roi-map">
+                          <span className={styles.mapDesktop} />
+                          {images
+                            .filter((image) => image.roi && image.id !== image.id)
+                            .map((image) => (
+                              <span
+                                key={image.id}
+                                className={styles.mapGhost}
+                                style={roiStyle(image.roi!, bounds)}
+                                title={image.name}
+                              />
+                            ))}
+                          <span className={styles.mapRoi} style={roiStyle(image.roi, bounds)} />
+                          <span
+                            className={styles.mapCentre}
+                            style={centrestyle(image.roi, bounds)}
+                          />
+                        </div>
+                      )}
+                      <div className={styles.mapMeta}>
+                        屏幕位置 ({image.roi.x}, {image.roi.y}) {image.roi.width}×
+                        {image.roi.height} · 中心 (
+                        {image.roi.x + Math.floor(image.roi.width / 2)},{' '}
+                        {image.roi.y + Math.floor(image.roi.height / 2)})
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={styles.mapMeta}>这张图还没有屏幕位置，框选后会显示在这里。</div>
+                  )}
 
                   <label className={styles.field}>
                     <span className={styles.label}>名称</span>

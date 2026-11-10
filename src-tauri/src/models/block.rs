@@ -116,6 +116,13 @@ pub enum ClickMode {
         /// Optional search region in virtual-screen physical pixels.
         #[serde(default)]
         roi: Option<Region>,
+        /// 识别失败时退回「中心坐标」点击（兜底）。中心取 ROI 中心，没有 ROI 就用
+        /// 图片自带的截取位置中心。
+        #[serde(default, alias = "fallback_click", alias = "fallbackClick")]
+        fallback_click: Option<bool>,
+        /// 鼠标按键：left / right / middle，默认 left。
+        #[serde(default)]
+        button: Option<String>,
     },
     /// Click a Windows UI Automation control.
     ///
@@ -328,11 +335,7 @@ mod tests {
 
     #[test]
     fn click_image_threshold_roundtrip() {
-        let mode = ClickMode::Image {
-            image_id: None,
-            threshold: Some(0.82),
-            roi: None,
-        };
+        let mode = ClickMode::Image { image_id: None, threshold: Some(0.82), roi: None, fallback_click: None, button: None };
         let json = serde_json::to_string(&mode).unwrap();
         assert!(json.contains("\"threshold\""));
         let back: ClickMode = serde_json::from_str(&json).unwrap();
@@ -345,7 +348,7 @@ mod tests {
             serde_json::from_str(r#"{"mode":"image","imageId":null}"#).unwrap();
         assert_eq!(
             back,
-            ClickMode::Image { image_id: None, threshold: None, roi: None },
+            ClickMode::Image { image_id: None, threshold: None, roi: None, fallback_click: None, button: None },
         );
     }
 

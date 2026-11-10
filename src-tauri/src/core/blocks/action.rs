@@ -46,7 +46,7 @@ impl ClickBlock {
         Self {
             id: BlockId::new(),
             position,
-            mode: ClickMode::Image { image_id: Some(image_id), threshold: None, roi: None },
+            mode: ClickMode::Image { image_id: Some(image_id), threshold: None, roi: None, fallback_click: None, button: None },
             count: count.max(1),
         }
     }

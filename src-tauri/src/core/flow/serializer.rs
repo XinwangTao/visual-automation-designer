@@ -402,7 +402,7 @@ mod tests {
             BlockType::Action { action: ActionType::Click },
             BlockPosition::new(200.0, 100.0),
             BlockConfig::Click {
-                mode: ClickMode::Image { image_id: Some(image_id.clone()), threshold: None, roi: None },
+                mode: ClickMode::Image { image_id: Some(image_id.clone()), threshold: None, roi: None, fallback_click: None, button: None },
                 count: 1,
             },
         );

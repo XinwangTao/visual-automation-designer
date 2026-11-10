@@ -545,7 +545,9 @@ impl ImageMatcher {
         // 金字塔已经在缩小的整幅图上做过一遍无跳步的全域扫描，候选邻域也用
         // 全分辨率校验过了。再跑一次旧的「跳步全扫」既不能补回漏检（它同样跳步），
         // 还会把「没找到」从 1s 拖到 4-20s——而等待目标出现恰恰是最常见的场景。
-        if pyramid_ran {
+        // 小模板（短边 < 32）缩下去只剩不到 12px，区分度不够，可能选错相似候选；
+        // 这类保留一次全量兜底。大模板走兜底只会把「没找到」拖到几十秒。
+        if pyramid_ran && needle_width.min(needle_height) >= 32 {
             return MatchResult {
                 found: false,
                 confidence: if near_miss > -2.0 { Some(near_miss) } else { None },

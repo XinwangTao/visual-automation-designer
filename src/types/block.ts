@@ -53,7 +53,16 @@ export interface Region {
  */
 export type ClickMode =
   | { mode: 'coordinates'; x: number; y: number }
-  | { mode: 'image'; imageId?: string; threshold?: number; roi?: Region }
+  | {
+      mode: 'image';
+      imageId?: string;
+      threshold?: number;
+      roi?: Region;
+      /** 识别失败时退回中心坐标点击 */
+      fallbackClick?: boolean;
+      /** 鼠标按键，默认 left */
+      button?: 'left' | 'right' | 'middle';
+    }
   | {
       mode: 'uia';
       window: string;

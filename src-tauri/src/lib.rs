@@ -162,6 +162,7 @@ pub fn run() {
             commands::set_image_roi,
             commands::clear_image_library,
             commands::get_image_thumbnail,
+            commands::get_desktop_bounds,
             commands::get_image,
             // Flow management commands
             commands::create_flow,

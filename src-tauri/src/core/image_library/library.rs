@@ -143,6 +143,11 @@ impl ImageLibraryManager {
     /// GUI 和 `vadctl` 是两个进程，各自只在启动时读一次；不重读的话，后写的
     /// 那个会拿自己的旧快照覆盖掉对方刚新增/删除的条目。
     fn refresh_from_disk(&self) {
+        // 文件暂时不存在（另一次保存正在 rename，或刚被外部移走）时保留内存里的
+        // 一份，绝不能当成「空库」——否则下一次保存会把整库写没。
+        if !self.metadata_path.exists() {
+            return;
+        }
         if let Ok(fresh) = Self::load_library(&self.metadata_path) {
             if let Ok(mut library) = self.library.lock() {
                 *library = fresh;
@@ -163,13 +168,15 @@ impl ImageLibraryManager {
             serde_json::to_string_pretty(&*library)?
         };
 
-        let temp_path = self.metadata_path.with_extension("json.tmp");
+        // 临时名带 pid：GUI 和 vadctl 同时保存时不会互相截断同一个 tmp。
+        let temp_path = self.metadata_path.with_extension(format!("json.{}.tmp", std::process::id()));
         fs::write(&temp_path, content)?;
-        // Windows 上 rename 覆盖目标需要先删（同目录、同一文件系统，失败窗口很小）。
-        if self.metadata_path.exists() {
-            let _ = fs::remove_file(&self.metadata_path);
+        // Rust 的 rename 在 Windows 上是 MoveFileEx(MOVEFILE_REPLACE_EXISTING)，
+        // 直接覆盖即可；先删目标会制造「主文件不存在」的崩溃窗口。
+        if let Err(err) = fs::rename(&temp_path, &self.metadata_path) {
+            let _ = fs::remove_file(&temp_path);
+            return Err(err.into());
         }
-        fs::rename(&temp_path, &self.metadata_path)?;
 
         Ok(())
     }

@@ -27,6 +27,8 @@ impl Executor {
         mode: &ClickMode,
         count: u32,
     ) -> Result<BlockResult> {
+        // 鼠标按键在 Image 分支里可配置，其它模式保持左键。
+        let mut click_button = crate::platform::MouseButton::Left;
         let (x, y) = match mode {
             ClickMode::Coordinates { x, y } => {
                 // Apply DPI scaling: logical → physical pixels. Signed values
@@ -41,7 +43,12 @@ impl Executor {
                     (*x, *y)
                 }
             }
-            ClickMode::Image { image_id, threshold, roi } => {
+            ClickMode::Image { image_id, threshold, roi, fallback_click, button } => {
+                click_button = match button.as_deref() {
+                    Some("right") => crate::platform::MouseButton::Right,
+                    Some("middle") => crate::platform::MouseButton::Middle,
+                    _ => crate::platform::MouseButton::Left,
+                };
                 let image_id =
                     image_id.as_ref().ok_or_else(|| {
                         AppError::ExecutionFailed(
@@ -72,28 +79,52 @@ impl Executor {
                     pos
                 } else {
                     // Find image on screen
-                    let (found, pos, confidence) = self.find_image_on_screen(image_id, *threshold, *roi).await?;
-                    if !found {
-                        let image_name = self.image_library
-                            .get(image_id)
-                            .map(|m| m.name.as_str())
-                            .unwrap_or("unknown");
-                        // Include accuracy info in error when available
-                        let detail = if confidence > 0.0 {
-                            format!(
-                                " (最佳匹配准确率 {:.1}%)", confidence * 100.0
-                            )
+                    let (found, pos, confidence) =
+                        self.find_image_on_screen(image_id, *threshold, *roi).await?;
+                    if found {
+                        pos
+                    } else {
+                        // 兜底：识别不到就按中心坐标点。中心优先取块的 ROI，
+                        // 其次取图片自带的截取位置；两者都没有就没法兜底。
+                        let centre = fallback_centre(
+                            *roi,
+                            self.image_library.get(image_id).and_then(|m| m.roi),
+                        );
+
+                        if fallback_click.unwrap_or(false) && centre.is_some() {
+                            let (cx, cy) = centre.unwrap_or((0, 0));
+                            crate::logging::log_error(
+                                "Image match failed, falling back to centre click",
+                                Some(&format!("image={image_id} centre=({cx},{cy})")),
+                                None,
+                            );
+                            self.last_evidence = Some(BlockEvidence {
+                                score: None,
+                                hit_rect: None,
+                                target: Some(format!(
+                                    "fallback centre ({cx},{cy}) after miss {:.1}%",
+                                    confidence * 100.0
+                                )),
+                            });
+                            (cx, cy)
                         } else {
-                            String::new()
-                        };
-                        return Ok(BlockResult::Error {
-                            message: format!(
-                                "Image not found on screen: {} (name: {}){}",
-                                image_id, image_name, detail
-                            ),
-                        });
+                            let image_name = self.image_library
+                                .get(image_id)
+                                .map(|m| m.name.as_str())
+                                .unwrap_or("unknown");
+                            let detail = if confidence > 0.0 {
+                                format!(" (最佳匹配准确率 {:.1}%)", confidence * 100.0)
+                            } else {
+                                String::new()
+                            };
+                            return Ok(BlockResult::Error {
+                                message: format!(
+                                    "Image not found on screen: {} (name: {}){}",
+                                    image_id, image_name, detail
+                                ),
+                            });
+                        }
                     }
-                    pos
                 }
             }
             ClickMode::Uia {
@@ -170,7 +201,7 @@ impl Executor {
             || {
                 let mut input = InputController::new()?;
                 for i in 0..count {
-                    input.click_at(x, y, crate::platform::MouseButton::Left)?;
+                    input.click_at(x, y, click_button)?;
                     if i < count - 1 {
                         std::thread::sleep(std::time::Duration::from_millis(25));
                     }
@@ -213,5 +244,48 @@ impl Executor {
             Ok(Err(e)) => Err(e),
             Err(e) => Err(e),
         }
+    }
+}
+
+/// 兜底点击的中心：块自己的 ROI 优先，其次用图片自带的截取位置。
+fn fallback_centre(
+    block_roi: Option<crate::models::Region>,
+    image_roi: Option<crate::models::Region>,
+) -> Option<(i32, i32)> {
+    block_roi.or(image_roi).map(|r| {
+        (
+            r.x + (r.width / 2) as i32,
+            r.y + (r.height / 2) as i32,
+        )
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn region(x: i32, y: i32, w: u32, h: u32) -> crate::models::Region {
+        crate::models::Region { x, y, width: w, height: h }
+    }
+
+    #[test]
+    fn fallback_centre_prefers_block_roi() {
+        assert_eq!(
+            fallback_centre(Some(region(100, 200, 40, 20)), Some(region(0, 0, 10, 10))),
+            Some((120, 210))
+        );
+    }
+
+    #[test]
+    fn fallback_centre_falls_back_to_image_roi() {
+        assert_eq!(
+            fallback_centre(None, Some(region(1000, 600, 100, 50))),
+            Some((1050, 625))
+        );
+    }
+
+    #[test]
+    fn fallback_centre_without_any_roi_is_none() {
+        assert_eq!(fallback_centre(None, None), None);
     }
 }
