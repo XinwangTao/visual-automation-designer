@@ -497,3 +497,11 @@ body .block-node--executing::after {
   color: var(--vad-color-text-secondary);
   font-size: 11.5px;
 }
+
+/* Toast：固定右上角，避免在窗口态盖住配置面板的「保存/取消」 */
+.toast-container {
+  top: 76px !important;
+  bottom: auto !important;
+  right: 16px !important;
+  align-items: flex-end;
+}
