@@ -185,6 +185,7 @@ mod tests {
                 image_id: None,
                 timeout_ms: Some(5000),
                 threshold: None,
+                roi: None,
             },
         );
         flow.entry_block = Some(block);

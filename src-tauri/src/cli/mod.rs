@@ -300,6 +300,7 @@ pub fn run<I: IntoIterator<Item = String>>(argv: I) -> i32 {
         "click-target" => cmd_click_target(&args),
         "windows" => cmd_windows(&args),
         "screenshot" => cmd_screenshot(&args),
+        "capture-image" => cmd_capture_image(&args),
         "type" => cmd_type(&args),
         "key" => cmd_key(&args),
         "scroll" => cmd_scroll(&args),
@@ -357,6 +358,8 @@ COMMANDS:
   windows                        List visible top-level windows with rect and pid
   screenshot [--out FILE]        Capture the virtual desktop and save a PNG
        [--region x,y,w,h] [--window TITLE] [--max-width N]
+  capture-image --name NAME      Capture a screen region into the image library
+       [--roi x,y,w,h]            (default: whole virtual desktop); returns image+roi+center
   type --text TEXT               Type text into the foreground window or a target
        [--window TITLE] [--uia --name X|--automation-id X|...]
        [--interval-ms N] [--press-enter]
@@ -660,6 +663,90 @@ fn cmd_validate(args: &Args) -> Result<i32, CliError> {
         }))
     );
     Ok(if ok { EXIT_OK } else { EXIT_USAGE })
+}
+
+// ----------------------------------------------------------------------------
+// capture-image: 冻结桌面 → 裁出指定区域 → 存进图片库，并返回 ROI 与中心点
+//
+// 与 GUI 的「从屏幕截取」走同一条管线：先整屏冻结再裁剪，因此屏幕上的
+// 鼠标/框选遮罩不会进入结果；返回的 roi/center 可直接写进点击或等待图片块。
+// ----------------------------------------------------------------------------
+
+fn cmd_capture_image(args: &Args) -> Result<i32, CliError> {
+    let name = args
+        .value("name")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| CliError::usage("--name is required"))?;
+
+    let capture = ScreenCapture::capture_virtual_desktop()
+        .map_err(|e| CliError::runtime(format!("capture failed: {e}")))?;
+    let origin_x = capture.origin_x;
+    let origin_y = capture.origin_y;
+    let full_width = capture.image.width();
+    let full_height = capture.image.height();
+
+    let (x, y, width, height) = match args.value("roi").or_else(|| args.value("region")) {
+        Some(roi) => {
+            let (x, y, w, h) = parse_roi(roi)?;
+            validate_capture_region(x, y, w.max(1), h.max(1))?;
+            (x, y, w.max(1), h.max(1))
+        }
+        None => (origin_x, origin_y, full_width, full_height),
+    };
+
+    let local_x = x - origin_x;
+    let local_y = y - origin_y;
+    if local_x < 0
+        || local_y < 0
+        || local_x as u32 + width > full_width
+        || local_y as u32 + height > full_height
+    {
+        return Err(CliError::usage(format!(
+            "--roi {x},{y},{width},{height} is outside the virtual desktop \
+             ({origin_x},{origin_y} {full_width}x{full_height})"
+        )));
+    }
+
+    let cropped = capture
+        .image
+        .crop_imm(local_x as u32, local_y as u32, width, height);
+    let mut buffer = std::io::Cursor::new(Vec::new());
+    cropped
+        .write_to(&mut buffer, image::ImageFormat::Png)
+        .map_err(|e| CliError::runtime(format!("cannot encode PNG: {e}")))?;
+
+    let dir = data_dir(args);
+    let images_dir = dir.join("images");
+    fs::create_dir_all(&images_dir)?;
+    let manager = ImageLibraryManager::new(&images_dir)?;
+    let metadata = manager
+        .add_image_from_bytes(
+            buffer.get_ref(),
+            name,
+            crate::models::ImageFormat::Png,
+        )
+        .map_err(|e| CliError::runtime(format!("cannot add image: {e}")))?;
+
+    println!(
+        "{}",
+        pretty(&json!({
+            "ok": true,
+            "image": metadata,
+            "roi": {"x": x, "y": y, "width": width, "height": height},
+            "center": {
+                "x": x + (width / 2) as i32,
+                "y": y + (height / 2) as i32,
+            },
+            "desktop": {
+                "originX": origin_x,
+                "originY": origin_y,
+                "width": full_width,
+                "height": full_height,
+            },
+        }))
+    );
+    Ok(EXIT_OK)
 }
 
 fn cmd_list(args: &Args) -> Result<i32, CliError> {

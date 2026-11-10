@@ -36,6 +36,16 @@ export interface BlockPosition {
 }
 
 /**
+ * 虚拟屏幕物理像素矩形（截图/ROI）
+ */
+export interface Region {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
  * 点击模式
  *
  * coordinates 使用虚拟桌面物理像素，允许负坐标（副屏在主屏左侧/上方）。
@@ -43,7 +53,7 @@ export interface BlockPosition {
  */
 export type ClickMode =
   | { mode: 'coordinates'; x: number; y: number }
-  | { mode: 'image'; imageId?: string; threshold?: number }
+  | { mode: 'image'; imageId?: string; threshold?: number; roi?: Region }
   | {
       mode: 'uia';
       window: string;
@@ -74,6 +84,7 @@ export type BlockConfig =
       imageId?: string;
       timeoutMs?: number;
       threshold?: number;
+      roi?: Region;
     }
   | {
       type: 'wait_time';

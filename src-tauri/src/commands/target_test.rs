@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::commands::ImageLibraryState;
 use crate::error::{AppError, Result};
-use crate::matching::{ImageMatcher, MatchConfig};
+use crate::matching::{ImageMatcher, MatchConfig, SearchRegion};
 use crate::models::ImageId;
 use crate::platform::ScreenCapture;
 
@@ -62,6 +62,7 @@ pub fn test_image_target(
     image_library_state: State<'_, ImageLibraryState>,
     image_id: String,
     threshold: Option<f64>,
+    roi: Option<crate::models::Region>,
 ) -> Result<ImageTargetTest> {
     let id = ImageId(
         Uuid::parse_str(&image_id)
@@ -85,12 +86,26 @@ pub fn test_image_target(
     let capture = ScreenCapture::capture_virtual_desktop()?;
     let template = image::open(&path)?;
 
+    let region = roi.and_then(|roi| {
+        let x = (roi.x - capture.origin_x).max(0) as u32;
+        let y = (roi.y - capture.origin_y).max(0) as u32;
+        if x < capture.width && y < capture.height {
+            Some(SearchRegion::new(
+                x,
+                y,
+                roi.width.min(capture.width.saturating_sub(x)),
+                roi.height.min(capture.height.saturating_sub(y)),
+            ))
+        } else {
+            None
+        }
+    });
     let matcher = ImageMatcher::with_config(MatchConfig::with_threshold(threshold));
     let started = Instant::now();
     let result = matcher.find_image_bounded(
         &capture.image,
         &template,
-        None,
+        region,
         Duration::from_millis(3000),
     );
     let elapsed_ms = started.elapsed().as_millis() as u64;

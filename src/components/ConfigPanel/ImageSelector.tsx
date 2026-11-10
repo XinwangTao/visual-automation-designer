@@ -5,9 +5,15 @@
  * Validates: Requirements 3.6
  */
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useImageLibrary } from '../../hooks/useImageLibrary';
 import { ConfirmDialog } from '../common/ConfirmDialog';
+import {
+  openScreenCapture,
+  onScreenCaptureSaved,
+  type ScreenPoint,
+  type ScreenRegion,
+} from '../../tauri/commands';
 import styles from './ConfigPanel.module.css';
 
 export interface ImageSelectorProps {
@@ -27,6 +33,8 @@ export interface ImageSelectorProps {
   emptyMessage?: string;
   /** Custom class name */
   className?: string;
+  /** Called after the built-in screen capture adds an image (returns ROI/center) */
+  onRegionSelect?: (imageId: string, roi: ScreenRegion, center: ScreenPoint) => void;
 }
 
 /**
@@ -48,6 +56,7 @@ export function ImageSelector({
   showPasteButton = true,
   emptyMessage = '暂无图片',
   className = '',
+  onRegionSelect,
 }: ImageSelectorProps) {
   const {
     images,
@@ -64,6 +73,28 @@ export function ImageSelector({
   const [isPasting, setIsPasting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+
+  // 全屏框选窗口保存后会广播事件，这里刷新图片库并自动选中新图。
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    onScreenCaptureSaved((captured) => {
+      void refreshImages();
+      onSelect?.(captured.image.id);
+      onRegionSelect?.(captured.image.id, captured.roi, captured.center);
+    })
+      .then((dispose) => {
+        if (disposed) dispose();
+        else unlisten = dispose;
+      })
+      .catch(() => {
+        // 浏览器模式没有 Tauri 事件，忽略。
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [refreshImages, onSelect, onRegionSelect]);
 
   // Filter images based on search query
   const filteredImages = useMemo(() => {
@@ -135,6 +166,21 @@ export function ImageSelector({
     onSelect?.(imageId);
   }, [onSelect]);
 
+  // The full-screen picker saves in another window and emits the result.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void onScreenCaptureSaved((captured) => {
+      void refreshImages();
+      onSelect?.(captured.image.id);
+      onRegionSelect?.(captured.image.id, captured.roi, captured.center);
+    }).then((dispose) => {
+      unlisten = dispose;
+    }).catch((err: unknown) => {
+      console.error('Failed to listen for screen capture:', err);
+    });
+    return () => unlisten?.();
+  }, [onRegionSelect, onSelect, refreshImages]);
+
   return (
     <div className={`image-selector ${className}`} data-testid="image-selector">
       {/* Search input */}
@@ -156,6 +202,23 @@ export function ImageSelector({
             ×
           </button>
         )}
+      </div>
+
+      {/* Capture from screen — the canonical "screenshot + coords + ROI" path */}
+      <div className={styles.imageSelectorActions}>
+        <button
+          className="image-selector-capture-btn"
+          onClick={() => {
+            void openScreenCapture().catch((err) => {
+              alert(err instanceof Error ? err.message : '打开屏幕截取失败');
+            });
+          }}
+          disabled={loading}
+          data-testid="btn-capture-screen"
+          title="冻结屏幕并拖拽框选目标，自动记录坐标与 ROI"
+        >
+          从屏幕截取
+        </button>
       </div>
 
       {/* Upload and Paste buttons - always visible at top */}
@@ -271,7 +334,8 @@ export function ImageSelector({
         </div>
       )}
 
-      {/* Delete confirmation dialog */}
+      {/* 全屏框选在独立窗口里完成，保存结果通过 screen-capture-saved 事件回传 */}
+
       <ConfirmDialog
         isOpen={deleteConfirm !== null}
         title="确认删除"

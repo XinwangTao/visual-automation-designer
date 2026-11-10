@@ -136,6 +136,9 @@ pub fn run() {
             // Initialize execution state
             let execution_state = ExecutionState::new(&app.handle());
             app.manage(execution_state);
+
+            // Frozen-desktop state for the full-screen capture picker
+            app.manage(commands::ScreenCaptureState::default());
             
             // DevTools no longer auto-opens (it covered the app during UI
             // checks). Opt in with VAD_OPEN_DEVTOOLS=1.
@@ -191,6 +194,14 @@ pub fn run() {
             commands::test_image_target,
             commands::test_uia_target,
             commands::dry_run_flow,
+            commands::capture_screen_preview,
+            commands::add_image_from_screen_region,
+            // Full-screen capture picker
+            commands::open_screen_capture,
+            commands::show_screen_capture_window,
+            commands::get_screen_capture_preview,
+            commands::save_screen_capture,
+            commands::cancel_screen_capture,
         ])
         .run(tauri::generate_context!());
 

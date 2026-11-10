@@ -275,6 +275,19 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "vad_capture",
+            "description": "Capture a screen region into the image library (the same pipeline as the GUI's screen picker: freeze the desktop, crop) and return image metadata plus roi and center. Use this before an image click or wait-image block so the block can reference imageId + roi.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Image library name for the new image"},
+                    "roi": {"type": "string", "description": "x,y,w,h in virtual-screen pixels; omit for the whole desktop"},
+                    "dataDir": {"type": "string"}
+                },
+                "required": ["name"]
+            }
+        }),
+        json!({
             "name": "vad_type",
             "description": "Type text into the foreground window, or focus a UIA control/window first. Optionally press Enter.",
             "inputSchema": {
@@ -679,6 +692,14 @@ fn build_args(tool: &str, args: &Value) -> Result<Vec<String>, String> {
             out.extend(["--preview-max-width".into(), preview_width.to_string()]);
             if get_bool(args, "overwrite") {
                 out.push("--overwrite".into());
+            }
+            push_common(args, &mut out);
+        }
+        "vad_capture" => {
+            let name = get_str(args, "name").ok_or("missing required argument: name")?;
+            out.extend(["capture-image".into(), "--name".into(), name]);
+            if let Some(roi) = get_str(args, "roi").or_else(|| get_str(args, "region")) {
+                out.extend(["--roi".into(), roi]);
             }
             push_common(args, &mut out);
         }

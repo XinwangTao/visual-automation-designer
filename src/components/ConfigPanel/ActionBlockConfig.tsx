@@ -57,9 +57,20 @@ export function ClickConfigUI({ config, onChange }: ConfigUIProps) {
   };
 
   const handleImageSelect = (imageId: string) => {
-    const currentMode = mode as { mode: 'image'; imageId: string };
+    const currentMode = mode as { mode: 'image'; imageId: string; roi?: unknown };
     if (currentMode.mode === 'image') {
-      onChange({ ...config, mode: { ...currentMode, imageId } });
+      // A different reference image invalidates the old ROI.
+      onChange({ ...config, mode: { ...currentMode, imageId, roi: undefined } });
+    }
+  };
+
+  const handleRegionSelect = (imageId: string, roi: { x: number; y: number; width: number; height: number }) => {
+    const currentMode = mode as { mode: 'image'; imageId?: string; threshold?: number };
+    if (currentMode.mode === 'image') {
+      onChange({
+        ...config,
+        mode: { ...currentMode, imageId, roi, threshold: currentMode.threshold ?? 0.7 },
+      });
     }
   };
 
@@ -88,14 +99,14 @@ export function ClickConfigUI({ config, onChange }: ConfigUIProps) {
       return;
     }
     if (mode.mode === 'image') {
-      const image = mode as { mode: 'image'; imageId?: string; threshold?: number };
+      const image = mode as { mode: 'image'; imageId?: string; threshold?: number; roi?: { x: number; y: number; width: number; height: number } };
       if (!image.imageId) {
         setTestResult({ tone: 'warn', title: '缺少图片', detail: '请先选择一张参考图片' });
         return;
       }
       setTesting(true);
       try {
-        const result = await testImageTarget(image.imageId, image.threshold ?? 0.7);
+        const result = await testImageTarget(image.imageId, image.threshold ?? 0.7, image.roi);
         if (result.found) {
           const rect = result.hitRect;
           setTestResult({
@@ -241,8 +252,9 @@ export function ClickConfigUI({ config, onChange }: ConfigUIProps) {
             <ImageSelector
               selectedId={(mode as { mode: 'image'; imageId: string }).imageId}
               onSelect={handleImageSelect}
+              onRegionSelect={handleRegionSelect}
               showUploadButton={true}
-              emptyMessage="请选择或上传图片"
+              emptyMessage="请选择、上传或从屏幕截取图片"
             />
           </div>
           <div className={styles.blockConfigField}>
@@ -265,6 +277,26 @@ export function ClickConfigUI({ config, onChange }: ConfigUIProps) {
             />
             <span className={styles.blockConfigHint}>0.7 为默认值；调低更宽松，调高更严格</span>
           </div>
+          {(mode as { roi?: { x: number; y: number; width: number; height: number } }).roi && (
+            <div className={styles.blockConfigField}>
+              <label className={styles.blockConfigLabel}>搜索区域（ROI）</label>
+              <div className="roi-summary">
+                <span>
+                  {(() => {
+                    const roi = (mode as { roi: { x: number; y: number; width: number; height: number } }).roi;
+                    return `${roi.x}, ${roi.y} · ${roi.width}×${roi.height}`;
+                  })()}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onChange({ ...config, mode: { ...(mode as object), roi: undefined } })}
+                >
+                  清除
+                </button>
+              </div>
+              <span className={styles.blockConfigHint}>执行时只在该虚拟屏幕区域内匹配图片</span>
+            </div>
+          )}
         </>
       )}
 
@@ -422,7 +454,7 @@ export function WaitImageConfigUI({ config, onChange }: ConfigUIProps) {
     setTestResult(null);
     setTesting(true);
     try {
-      const result = await testImageTarget(imageId, threshold);
+      const result = await testImageTarget(imageId, threshold, config.roi as { x: number; y: number; width: number; height: number } | undefined);
       if (result.found) {
         const rect = result.hitRect;
         setTestResult({
@@ -458,9 +490,10 @@ export function WaitImageConfigUI({ config, onChange }: ConfigUIProps) {
         <label className={styles.blockConfigLabel}>等待图片</label>
         <ImageSelector
           selectedId={imageId}
-          onSelect={(newImageId: string) => onChange({ ...config, imageId: newImageId })}
+          onSelect={(newImageId: string) => onChange({ ...config, imageId: newImageId, roi: undefined })}
+          onRegionSelect={(newImageId, roi) => onChange({ ...config, imageId: newImageId, roi })}
           showUploadButton={true}
-          emptyMessage="请选择或上传要等待的图片"
+          emptyMessage="请选择、上传或从屏幕截取要等待的图片"
         />
       </div>
       <div className={styles.blockConfigField}>
@@ -492,6 +525,23 @@ export function WaitImageConfigUI({ config, onChange }: ConfigUIProps) {
         />
         <span className={styles.blockConfigHint}>0.7 为默认值；低于阈值的匹配会被视为未出现</span>
       </div>
+      {(config.roi as { x: number; y: number; width: number; height: number } | undefined) && (
+        <div className={styles.blockConfigField}>
+          <label className={styles.blockConfigLabel}>搜索区域（ROI）</label>
+          <div className="roi-summary">
+            <span>
+              {(() => {
+                const roi = config.roi as { x: number; y: number; width: number; height: number };
+                return `${roi.x}, ${roi.y} · ${roi.width}×${roi.height}`;
+              })()}
+            </span>
+            <button type="button" onClick={() => onChange({ ...config, roi: undefined })}>
+              清除
+            </button>
+          </div>
+          <span className={styles.blockConfigHint}>只在该虚拟屏幕区域内等待图片</span>
+        </div>
+      )}
       <div className={styles.blockConfigField}>
         <button
           className={styles.blockConfigTestBtn}

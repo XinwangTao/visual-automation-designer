@@ -371,6 +371,7 @@ mod tests {
                 image_id: Some(image_id.clone()),
                 timeout_ms: Some(5000),
                 threshold: None,
+                roi: None,
             },
         );
         flow.add_block(block);
@@ -394,13 +395,14 @@ mod tests {
                 image_id: Some(image_id.clone()),
                 timeout_ms: Some(5000),
                 threshold: None,
+                roi: None,
             },
         );
         let block2 = BlockNode::new(
             BlockType::Action { action: ActionType::Click },
             BlockPosition::new(200.0, 100.0),
             BlockConfig::Click {
-                mode: ClickMode::Image { image_id: Some(image_id.clone()), threshold: None },
+                mode: ClickMode::Image { image_id: Some(image_id.clone()), threshold: None, roi: None },
                 count: 1,
             },
         );

@@ -73,6 +73,16 @@ pub enum BlockType {
     Control { control: ControlType },
 }
 
+/// Rectangle in virtual-screen physical pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Region {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// Position on the canvas (for rendering)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockPosition {
@@ -103,6 +113,9 @@ pub enum ClickMode {
         /// Matching accuracy threshold (0.0~1.0). Default: 0.7
         #[serde(default, alias = "threshold")]
         threshold: Option<f64>,
+        /// Optional search region in virtual-screen physical pixels.
+        #[serde(default)]
+        roi: Option<Region>,
     },
     /// Click a Windows UI Automation control.
     ///
@@ -165,6 +178,9 @@ pub enum BlockConfig {
         /// Scores below this are treated as "not found".
         #[serde(alias = "threshold")]
         threshold: Option<f64>,
+        /// Optional search region in virtual-screen physical pixels.
+        #[serde(default)]
+        roi: Option<Region>,
     },
     /// Wait for time block configuration
     WaitTime {
@@ -315,6 +331,7 @@ mod tests {
         let mode = ClickMode::Image {
             image_id: None,
             threshold: Some(0.82),
+            roi: None,
         };
         let json = serde_json::to_string(&mode).unwrap();
         assert!(json.contains("\"threshold\""));
@@ -328,7 +345,7 @@ mod tests {
             serde_json::from_str(r#"{"mode":"image","imageId":null}"#).unwrap();
         assert_eq!(
             back,
-            ClickMode::Image { image_id: None, threshold: None }
+            ClickMode::Image { image_id: None, threshold: None, roi: None },
         );
     }
 

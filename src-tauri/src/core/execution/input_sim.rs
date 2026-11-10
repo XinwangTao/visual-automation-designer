@@ -41,7 +41,7 @@ impl Executor {
                     (*x, *y)
                 }
             }
-            ClickMode::Image { image_id, threshold } => {
+            ClickMode::Image { image_id, threshold, roi } => {
                 let image_id =
                     image_id.as_ref().ok_or_else(|| {
                         AppError::ExecutionFailed(
@@ -50,7 +50,11 @@ impl Executor {
                         )
                     })?;
                 // Check cache first
-                let cached = {
+                let cached = if roi.is_some() {
+                    // A cached point from a different/no ROI may be outside
+                    // the configured search region; resolve again.
+                    None
+                } else {
                     let ctx = self.context.lock().await;
                     ctx.get_cached_image_match(image_id)
                 };
@@ -68,7 +72,7 @@ impl Executor {
                     pos
                 } else {
                     // Find image on screen
-                    let (found, pos, confidence) = self.find_image_on_screen(image_id, *threshold).await?;
+                    let (found, pos, confidence) = self.find_image_on_screen(image_id, *threshold, *roi).await?;
                     if !found {
                         let image_name = self.image_library
                             .get(image_id)

@@ -361,8 +361,12 @@ export interface UiaTargetTest {
 }
 
 /** 只读解析图片目标：截取虚拟桌面并做模板匹配。 */
-export async function testImageTarget(imageId: string, threshold?: number): Promise<ImageTargetTest> {
-  return invoke<ImageTargetTest>('test_image_target', { imageId, threshold });
+export async function testImageTarget(
+  imageId: string,
+  threshold?: number,
+  roi?: { x: number; y: number; width: number; height: number },
+): Promise<ImageTargetTest> {
+  return invoke<ImageTargetTest>('test_image_target', { imageId, threshold, roi });
 }
 
 /** 只读解析 UIA 控件：不提升窗口、不点击。 */
@@ -375,4 +379,117 @@ export async function testUiaTarget(params: {
   index?: number;
 }): Promise<UiaTargetTest> {
   return invoke<UiaTargetTest>('test_uia_target', params);
+}
+
+// ============================================================================
+// 屏幕截取（图像选择器）
+// ============================================================================
+
+export interface ScreenPreview {
+  data: string;
+  width: number;
+  height: number;
+  previewWidth: number;
+  previewHeight: number;
+  originX: number;
+  originY: number;
+  scale: number;
+}
+
+export interface ScreenRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ScreenPoint {
+  x: number;
+  y: number;
+}
+
+export interface CapturedImage {
+  image: ImageMetadata;
+  roi: ScreenRegion;
+  center: ScreenPoint;
+}
+
+/** 截取虚拟桌面，返回可直接显示的 PNG（可缩放预览）。 */
+export async function captureScreenPreview(maxWidth?: number): Promise<ScreenPreview> {
+  return invoke<ScreenPreview>('capture_screen_preview', { maxWidth });
+}
+
+/** 从当前屏幕裁剪区域并加入图片库，返回图片元数据 + 屏幕 ROI/中心点。 */
+export async function addImageFromScreenRegion(params: {
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): Promise<CapturedImage> {
+  return invoke<CapturedImage>('add_image_from_screen_region', params);
+}
+
+// ----------------------------------------------------------------------------
+// 全屏截取窗口
+//
+// open_screen_capture 冻结整个虚拟桌面并打开一个覆盖全屏、置顶的无边框窗口；
+// 用户在窗口里直接框选，保存时从同一张冻结图上裁剪，避免把遮罩截进去。
+// ----------------------------------------------------------------------------
+
+/** 冻结桌面并打开全屏框选窗口；主窗口会被隐藏，取消/保存后自动恢复。 */
+export async function openScreenCapture(): Promise<void> {
+  return invoke('open_screen_capture');
+}
+
+/** 框选窗口在冻结图渲染完成后调用，避免闪白。 */
+export async function showScreenCaptureWindow(): Promise<void> {
+  return invoke('show_screen_capture_window');
+}
+
+/** 获取冻结桌面的预览（可缩放）；坐标尺寸为虚拟桌面物理像素。 */
+export async function getScreenCapturePreview(maxWidth?: number): Promise<ScreenPreview> {
+  return invoke<ScreenPreview>('get_screen_capture_preview', { maxWidth });
+}
+
+/** 从冻结桌面裁剪并保存到图片库；x/y/width/height 以冻结图左上角为原点。 */
+export async function saveScreenCapture(params: {
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): Promise<CapturedImage> {
+  return invoke<CapturedImage>('save_screen_capture', params);
+}
+
+/** 放弃本次截取，关闭框选窗口并恢复主窗口。 */
+export async function cancelScreenCapture(): Promise<void> {
+  return invoke('cancel_screen_capture');
+}
+
+/** 监听「截取已保存」事件（主窗口用它刷新图片库并选中新图）。 */
+export async function onScreenCaptureSaved(
+  callback: (captured: CapturedImage) => void,
+): Promise<() => void> {
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen<CapturedImage>('screen-capture-saved', (event) => {
+    callback(event.payload);
+  });
+}
+
+/** 主窗口已被切成全屏框选层：前端挂载 CaptureOverlay。 */
+export async function onScreenCaptureOpened(callback: () => void): Promise<() => void> {
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen('screen-capture-opened', () => {
+    callback();
+  });
+}
+
+/** 框选结束（保存或取消）：前端卸载 CaptureOverlay。 */
+export async function onScreenCaptureClosed(callback: () => void): Promise<() => void> {
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen('screen-capture-closed', () => {
+    callback();
+  });
 }

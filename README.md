@@ -67,6 +67,7 @@ vadctl click-target --uia --window "记事本" --name 确定 --dry-run
 # Agent 闭环原语
 vadctl windows                                   # 窗口标题/矩形/pid/前台
 vadctl screenshot --window "记事本" --max-width 1280
+vadctl capture-image --name 保存按钮 --roi 1800,1320,160,48   # 冻结桌面→裁剪→入库，返回 image+roi+center
 vadctl type --window "记事本" --uia --automation-id 15 --text "hello" --press-enter
 vadctl key --keys "ctrl+s" --window "记事本"
 vadctl scroll --amount -3 --coords 1200,700

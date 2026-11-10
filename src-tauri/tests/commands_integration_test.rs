@@ -388,7 +388,7 @@ fn test_complete_workflow() {
         BlockType::Action { action: ActionType::Click },
         BlockPosition::new(100.0, 100.0),
         BlockConfig::Click {
-            mode: ClickMode::Image { image_id: Some(image_id.clone()) },
+            mode: ClickMode::Image { image_id: Some(image_id.clone()), threshold: None, roi: None },
             count: 1,
         },
     );
@@ -462,12 +462,14 @@ fn test_block_config_serialization() {
             count: 1,
         },
         BlockConfig::Click {
-            mode: ClickMode::Image { image_id: Some(ImageId::new()) },
+            mode: ClickMode::Image { image_id: Some(ImageId::new()), threshold: None, roi: None },
             count: 2,
         },
         BlockConfig::WaitImage {
             image_id: Some(ImageId::new()),
             timeout_ms: Some(5000),
+            threshold: None,
+            roi: None,
         },
         BlockConfig::WaitTime {
             duration_ms: 1000,
@@ -539,7 +541,7 @@ fn test_flow_json_roundtrip() {
 // ============================================================================
 
 /// Helper: create a click action block
-fn make_click_block(x: f64, y: f64, cx: u32, cy: u32) -> BlockNode {
+fn make_click_block(x: f64, y: f64, cx: i32, cy: i32) -> BlockNode {
     BlockNode::new(
         BlockType::Action { action: ActionType::Click },
         BlockPosition::new(x, y),
@@ -558,6 +560,8 @@ fn make_wait_image_block(x: f64, y: f64) -> BlockNode {
         BlockConfig::WaitImage {
             image_id: Some(ImageId::new()),
             timeout_ms: Some(5000),
+            threshold: None,
+            roi: None,
         },
     )
 }
@@ -1158,7 +1162,7 @@ fn test_e2e_find_665png_and_click() {
 
     for i in 0..2 {
         let start = Instant::now();
-        input.click_at(cx, cy, MouseButton::Left)
+        input.click_at(cx as i32, cy as i32, MouseButton::Left)
             .expect("click_at failed");
         let elapsed = start.elapsed();
         println!("     点击 {}: 位置({},{}), 耗时 {:.1}ms",

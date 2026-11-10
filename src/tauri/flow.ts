@@ -156,7 +156,7 @@ type TauriBlockConfigPayload =
       type: 'click';
       mode:
         | { mode: 'coordinates'; x: number; y: number }
-        | { mode: 'image'; imageId?: string; threshold?: number }
+        | { mode: 'image'; imageId?: string; threshold?: number; roi?: { x: number; y: number; width: number; height: number } }
         | {
             mode: 'uia';
             window: string;
@@ -174,6 +174,7 @@ type TauriBlockConfigPayload =
       imageId?: string;
       timeoutMs?: number;
       threshold?: number;
+      roi?: { x: number; y: number; width: number; height: number };
     }
   | {
       type: 'waitTime';

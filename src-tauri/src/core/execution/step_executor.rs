@@ -159,8 +159,9 @@ impl Executor {
                 image_id,
                 timeout_ms,
                 threshold,
+                roi,
             } => {
-                self.execute_wait_image_block(image_id.as_ref(), *timeout_ms, *threshold)
+                self.execute_wait_image_block(image_id.as_ref(), *timeout_ms, *threshold, *roi)
                     .await
             }
             BlockConfig::WaitTime { duration_ms } => {
@@ -293,6 +294,7 @@ impl Executor {
         image_id: Option<&ImageId>,
         timeout_ms: Option<u64>,
         threshold: Option<f64>,
+        roi: Option<crate::models::Region>,
     ) -> Result<BlockResult> {
         let image_id = image_id.ok_or_else(|| {
             AppError::ExecutionFailed(
@@ -308,7 +310,7 @@ impl Executor {
         // Dry-run: resolve once instead of polling for the full timeout.
         if self.dry_run {
             let (found, pos, confidence) = self
-                .find_image_on_screen(image_id, Some(threshold))
+                .find_image_on_screen(image_id, Some(threshold), roi)
                 .await?;
             if found {
                 self.context
@@ -364,7 +366,7 @@ impl Executor {
             }
 
             // Try to find image
-            let (found, pos, confidence) = self.find_image_on_screen(image_id, Some(threshold)).await?;
+            let (found, pos, confidence) = self.find_image_on_screen(image_id, Some(threshold), roi).await?;
 
             // Track best confidence across poll attempts
             best_confidence = best_confidence.max(confidence);
@@ -551,7 +553,7 @@ impl Executor {
                 )
             })?;
             // Find image on screen (condition blocks use default threshold)
-            let (found, _, _) = self.find_image_on_screen(image_id, None).await?;
+            let (found, _, _) = self.find_image_on_screen(image_id, None, None).await?;
 
             // Evaluate condition
             let condition_met = match condition {

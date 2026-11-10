@@ -6,6 +6,7 @@
  */
 
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import type { Connection } from 'reactflow';
 import './App.css';
@@ -15,12 +16,14 @@ import { FlowCanvas, FlowToolbar } from './components/FlowEditor';
 import { ExecutionLog, executionEventToLogEntry } from './components/ExecutionStatus';
 import { Toolbox } from './components/BlockToolbox';
 import { BlockConfig } from './components/ConfigPanel';
+import { CaptureOverlay } from './components/ScreenCapture/CaptureOverlay';
 import { ConfirmDialog, useSpotlight, useToast } from './components/common';
 import { useFlow, useExecution, useKeyboardShortcuts, useTheme, buildCanonicalFlow } from './hooks';
 import type { InternalExecutionEvent } from './hooks/useExecution';
 import type { Flow as TauriFlow, ValidationErrorResponse } from './tauri/flow';
 import { validateFlow } from './tauri/flow';
 import { dryRunFlow } from './tauri/execution';
+import { onScreenCaptureClosed, onScreenCaptureOpened } from './tauri/commands';
 import { formatValidationResponse } from './validation/formatValidationMessage';
 import { getConnectionGuardValidation } from './validation/connectionGuards';
 import { isInputElement } from './utils/dom';
@@ -36,7 +39,7 @@ type PendingPlacement = { type: string; category: string };
 const ONBOARDING_DISMISSED_KEY = 'vad-onboarding-dismissed';
 const LOG_COLLAPSED_STORAGE_KEY = 'vad-log-collapsed';
 const LOG_HEIGHT_STORAGE_KEY = 'vad-log-height';
-const DEFAULT_LOG_HEIGHT = 240;
+const DEFAULT_LOG_HEIGHT = 200;
 
 // ── Component ──────────────────────────────────────────────────────
 
@@ -125,6 +128,25 @@ export function AppShell() {
   const [focusedValidationNodeId, setFocusedValidationNodeId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'output' | 'problems'>('output');
   const [frontendRuntimeEvents, setFrontendRuntimeEvents] = useState<InternalExecutionEvent[]>([]);
+  /** 后端把主窗口切成全屏框选层时挂载 CaptureOverlay。 */
+  const [captureOverlayOpen, setCaptureOverlayOpen] = useState(false);
+
+  useEffect(() => {
+    // 浏览器预览/单测里没有 Tauri IPC，跳过订阅，避免制造无关的前端异常。
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return;
+    let disposed = false;
+    const disposers: Array<() => void> = [];
+    const keep = (dispose: () => void) => {
+      if (disposed) dispose();
+      else disposers.push(dispose);
+    };
+    void onScreenCaptureOpened(() => setCaptureOverlayOpen(true)).then(keep, () => undefined);
+    void onScreenCaptureClosed(() => setCaptureOverlayOpen(false)).then(keep, () => undefined);
+    return () => {
+      disposed = true;
+      disposers.forEach((dispose) => dispose());
+    };
+  }, []);
 
   const errorsCount = flowValidationErrors.length;
   const warningsCount = flowValidationWarnings.length;
@@ -1062,6 +1084,9 @@ export function AppShell() {
         onCancel={cancelCreateFlow}
         onConfirm={() => void handleCreateFlow()}
       />
+
+      {/* 全屏框选层：挂到 body，避免被侧栏/卡片的 backdrop-filter 变成 fixed 容器 */}
+      {captureOverlayOpen && createPortal(<CaptureOverlay />, document.body)}
     </div>
   );
 }

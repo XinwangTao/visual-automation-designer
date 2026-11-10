@@ -311,6 +311,7 @@ mod tests {
             image_id: None,
             timeout_ms: Some(50),
             threshold: None,
+            roi: None,
         };
         let errors = validate_block_config(&validator, &block_id, &config);
         assert_eq!(errors.len(), 1);
@@ -326,6 +327,7 @@ mod tests {
             image_id: None,
             timeout_ms: Some(100000),
             threshold: None,
+            roi: None,
         };
         let errors = validate_block_config(&validator, &block_id, &config);
         assert_eq!(errors.len(), 1);
@@ -340,6 +342,7 @@ mod tests {
             image_id: None,
             timeout_ms: Some(5000),
             threshold: None,
+            roi: None,
         };
         let errors = validate_block_config(&validator, &block_id, &config);
         assert!(errors.is_empty());
@@ -353,6 +356,7 @@ mod tests {
             image_id: None,
             timeout_ms: None,
             threshold: None,
+            roi: None,
         };
         let errors = validate_block_config(&validator, &block_id, &config);
         assert!(errors.is_empty());
@@ -496,6 +500,7 @@ mod tests {
                 mode: ClickMode::Image {
                     image_id: Some(crate::models::image::ImageId(uuid::Uuid::nil())),
                     threshold: None,
+                    roi: None,
                 },
                 count: 1,
             },
@@ -521,6 +526,7 @@ mod tests {
                 image_id: Some(crate::models::image::ImageId(uuid::Uuid::nil())),
                 timeout_ms: Some(5000),
                 threshold: None,
+                roi: None,
             },
         );
         flow.add_block(block);
@@ -567,6 +573,7 @@ mod tests {
                 mode: ClickMode::Image {
                     image_id: Some(crate::models::image::ImageId::new()),
                     threshold: None,
+                    roi: None,
                 },
                 count: 1,
             },
@@ -587,7 +594,7 @@ mod tests {
             },
             crate::models::block::BlockPosition::new(0.0, 0.0),
             BlockConfig::Click {
-                mode: ClickMode::Image { image_id: None, threshold: None },
+                mode: ClickMode::Image { image_id: None, threshold: None, roi: None },
                 count: 1,
             },
         );

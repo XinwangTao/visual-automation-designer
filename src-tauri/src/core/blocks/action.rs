@@ -46,7 +46,7 @@ impl ClickBlock {
         Self {
             id: BlockId::new(),
             position,
-            mode: ClickMode::Image { image_id: Some(image_id), threshold: None },
+            mode: ClickMode::Image { image_id: Some(image_id), threshold: None, roi: None },
             count: count.max(1),
         }
     }
@@ -156,6 +156,7 @@ impl Block for WaitImageBlock {
             image_id: self.image_id.clone(),
             timeout_ms: self.timeout_ms,
             threshold: None,
+            roi: None,
         };
         validate_config(&config)
     }

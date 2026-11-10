@@ -8,7 +8,8 @@
 use std::time::{Duration, Instant};
 
 use crate::error::{AppError, Result};
-use crate::models::ImageId;
+use crate::matching::SearchRegion;
+use crate::models::{ImageId, Region};
 
 use super::events::{BlockEvidence, HitRect};
 use super::runner::{safe_execute, Executor};
@@ -56,6 +57,34 @@ fn evidence_for(
 }
 
 
+/// Clip a virtual-screen ROI to one monitor capture and convert to image coords.
+/// Returns `None` when the ROI does not intersect this monitor.
+fn search_region_for_capture(
+    roi: Region,
+    origin_x: i32,
+    origin_y: i32,
+    width: u32,
+    height: u32,
+) -> Option<SearchRegion> {
+    let roi_right = roi.x.saturating_add(roi.width as i32);
+    let roi_bottom = roi.y.saturating_add(roi.height as i32);
+    let mon_right = origin_x.saturating_add(width as i32);
+    let mon_bottom = origin_y.saturating_add(height as i32);
+    let left = roi.x.max(origin_x);
+    let top = roi.y.max(origin_y);
+    let right = roi_right.min(mon_right);
+    let bottom = roi_bottom.min(mon_bottom);
+    if right <= left || bottom <= top {
+        return None;
+    }
+    Some(SearchRegion::new(
+        (left - origin_x) as u32,
+        (top - origin_y) as u32,
+        (right - left) as u32,
+        (bottom - top) as u32,
+    ))
+}
+
 impl Executor {
     /// Find an image on screen with caching and performance tracking.
     ///
@@ -72,6 +101,7 @@ impl Executor {
         &mut self,
         image_id: &ImageId,
         threshold: Option<f64>,
+        roi: Option<Region>,
     ) -> Result<(bool, (i32, i32), f64)> {
         let start = Instant::now();
 
@@ -99,6 +129,19 @@ impl Executor {
         );
 
         if let Ok(Ok(capture)) = capture_result {
+            let search_region = match roi {
+                Some(region) => search_region_for_capture(
+                    region,
+                    capture.origin_x,
+                    capture.origin_y,
+                    capture.width,
+                    capture.height,
+                ),
+                None => None,
+            };
+            if roi.is_some() && search_region.is_none() {
+                // ROI is not on the primary monitor; fall through to others.
+            } else {
             let result = {
                 let mut matcher = self.matcher.lock().await;
                 // Apply an optional threshold for this call only; previously
@@ -111,7 +154,7 @@ impl Executor {
                 let result = matcher.find_image_bounded(
                     &capture.image,
                     &template,
-                    None,
+                    search_region,
                     Duration::from_millis(3000),
                 );
                 if threshold.is_some() {
@@ -140,6 +183,7 @@ impl Executor {
                 ));
                 return Ok((true, match_center(&capture.origin_x, &capture.origin_y, &result), best_confidence));
             }
+            }
         }
 
         // 2. If not found, try all other monitors (multi-monitor fallback path)
@@ -151,6 +195,19 @@ impl Executor {
                 );
 
                 if let Ok(Ok(capture)) = capture_fallback_result {
+                    let search_region = match roi {
+                        Some(region) => search_region_for_capture(
+                            region,
+                            capture.origin_x,
+                            capture.origin_y,
+                            capture.width,
+                            capture.height,
+                        ),
+                        None => None,
+                    };
+                    if roi.is_some() && search_region.is_none() {
+                        continue;
+                    }
                     let result = {
                         let mut matcher = self.matcher.lock().await;
                         let previous = matcher.threshold();
@@ -160,7 +217,7 @@ impl Executor {
                         let result = matcher.find_image_bounded(
                             &capture.image,
                             &template,
-                            None,
+                            search_region,
                             Duration::from_millis(3000),
                         );
                         if threshold.is_some() {
