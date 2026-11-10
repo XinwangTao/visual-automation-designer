@@ -1,4 +1,4 @@
-/* 全屏截取遮罩：覆盖整个虚拟桌面，冻结截图铺满，拖拽框选 */
+/* 全屏截取遮罩：冻结桌面铺满，拖拽框选 */
 
 .overlay {
   position: fixed;
@@ -20,38 +20,117 @@
   pointer-events: none;
 }
 
+/* 选区：圆角 + 外发光；9999px 的投影负责压暗选区以外的画面 */
 .selection {
   position: absolute;
-  border: 1.5px solid #4c9aff;
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  border: 2px solid #6cb2ff;
+  border-radius: 4px;
+  box-shadow:
+    0 0 0 9999px rgba(4, 7, 15, 0.46),
+    0 0 0 1px rgba(0, 0, 0, 0.55),
+    0 0 22px rgba(76, 154, 255, 0.45);
   pointer-events: none;
 }
 
-.hint {
-  position: fixed;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: rgba(17, 24, 39, 0.86);
-  color: #fff;
-  font-size: 13px;
-  line-height: 1.4;
+/* 四角手柄 */
+.handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: #eaf2ff;
+  border: 1px solid #3d8bfd;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+.handleNw {
+  left: -5px;
+  top: -5px;
+}
+
+.handleNe {
+  right: -5px;
+  top: -5px;
+}
+
+.handleSw {
+  left: -5px;
+  bottom: -5px;
+}
+
+.handleSe {
+  right: -5px;
+  bottom: -5px;
+}
+
+/* 十字辅助线：跟随光标，帮助对齐边缘 */
+.crosshairV,
+.crosshairH {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.crosshairV {
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed rgba(255, 255, 255, 0.55);
+}
+
+.crosshairH {
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed rgba(255, 255, 255, 0.55);
+}
+
+/* 光标处的实时坐标 */
+.cursorChip {
+  position: absolute;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: #eaf2ff;
+  background: rgba(10, 16, 28, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(6px);
   pointer-events: none;
   white-space: nowrap;
 }
 
-/* 跟随选区的实时尺寸/屏幕坐标，避免保存后才发现 ROI 不对 */
+.hint {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #f2f6ff;
+  background: rgba(12, 18, 32, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(10px) saturate(1.2);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* 跟随选区的尺寸/坐标徽标 */
 .badge {
   position: absolute;
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: rgba(37, 99, 235, 0.92);
-  color: #fff;
+  padding: 4px 9px;
+  border-radius: 8px;
   font-size: 12px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  line-height: 1.5;
+  line-height: 1.4;
+  color: #fff;
+  background: linear-gradient(180deg, #3d8bfd, #2f6fe0);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 6px 18px rgba(47, 111, 224, 0.45);
   white-space: nowrap;
   pointer-events: none;
 }

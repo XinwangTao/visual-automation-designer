@@ -153,20 +153,20 @@ export function ImageSelector({
       <div className="image-selector__actions">
         <button
           type="button"
-          className="image-selector__btn"
-          onClick={() => setDrawerOpen(true)}
-          data-testid="btn-open-image-drawer"
-        >
-          选择图片
-        </button>
-        <button
-          type="button"
           className="image-selector-capture-btn image-selector__btn image-selector__btn--primary"
           onClick={handleCapture}
           data-testid="btn-capture-screen"
           title="冻结屏幕并拖拽框选目标，自动记录坐标与 ROI"
         >
           从屏幕截取
+        </button>
+        <button
+          type="button"
+          className="image-selector__btn"
+          onClick={() => setDrawerOpen(true)}
+          data-testid="btn-open-image-drawer"
+        >
+          选择图片
         </button>
         {showUploadButton && (
           <button

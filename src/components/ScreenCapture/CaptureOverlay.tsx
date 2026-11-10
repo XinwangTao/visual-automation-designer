@@ -36,6 +36,8 @@ export function CaptureOverlay() {
   const [preview, setPreview] = useState<ScreenPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
+  /** 光标位置（CSS 像素），用来画十字辅助线和坐标提示。 */
+  const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ startX: number; startY: number; dragging: boolean } | null>(null);
@@ -83,9 +85,10 @@ export function CaptureOverlay() {
 
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
+      const point = pointFromEvent(event);
+      setPointer({ x: point.x, y: point.y });
       const drag = dragRef.current;
       if (!drag?.dragging) return;
-      const point = pointFromEvent(event);
       setSelection({
         x: Math.min(drag.startX, point.x),
         y: Math.min(drag.startY, point.y),
@@ -115,6 +118,17 @@ export function CaptureOverlay() {
       y: Math.max(0, Math.round(selection.y * scaleY)),
       width: Math.max(1, Math.round(selection.w * scaleX)),
       height: Math.max(1, Math.round(selection.h * scaleY)),
+    };
+  })();
+
+  /** 光标位置的屏幕绝对坐标（用于实时提示）。 */
+  const pointerScreen = (() => {
+    if (!preview || !pointer || !imgRef.current) return null;
+    const rect = imgRef.current.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    return {
+      x: preview.originX + Math.round(pointer.x * (preview.width / rect.width)),
+      y: preview.originY + Math.round(pointer.y * (preview.height / rect.height)),
     };
   })();
 
@@ -198,7 +212,31 @@ export function CaptureOverlay() {
           }}
         />
       )}
-      {selection && <div className={styles.selection} style={selectionStyle} />}
+      {preview && pointer && !saving && (
+        <>
+          <div className={styles.crosshairV} style={{ left: pointer.x }} />
+          <div className={styles.crosshairH} style={{ top: pointer.y }} />
+          {pointerScreen && (
+            <div
+              className={styles.cursorChip}
+              style={{
+                left: Math.min(pointer.x + 16, window.innerWidth - 120),
+                top: Math.min(pointer.y + 16, window.innerHeight - 36),
+              }}
+            >
+              {pointerScreen.x}, {pointerScreen.y}
+            </div>
+          )}
+        </>
+      )}
+      {selection && (
+        <div className={styles.selection} style={selectionStyle}>
+          <span className={`${styles.handle} ${styles.handleNw}`} />
+          <span className={`${styles.handle} ${styles.handleNe}`} />
+          <span className={`${styles.handle} ${styles.handleSw}`} />
+          <span className={`${styles.handle} ${styles.handleSe}`} />
+        </div>
+      )}
       {selection && screenRegion && (
         <div
           className={styles.badge}

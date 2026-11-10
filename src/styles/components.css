@@ -8887,10 +8887,20 @@ line-height: 1.5;
 }
 
 .image-selector__actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 8px;
+}
+
+.image-selector__actions .image-selector__btn {
+  width: 100%;
+  white-space: nowrap;
+  padding: 0 8px;
+}
+
+.image-selector__btn--primary {
+  grid-column: 1 / -1;
 }
 
 .image-selector__btn {

@@ -679,3 +679,96 @@
   background: color-mix(in srgb, var(--color-danger) 8%, var(--color-bg-secondary) 92%);
 }
 .targetTestResultError strong { color: var(--color-danger); }
+
+/* ── 配置面板头部（整理版）：紧凑状态条 + 类型胶囊 ───────────────── */
+.blockConfigHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border, #2a3550) 45%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-bg-secondary, #121a2e) 55%, transparent),
+    transparent
+  );
+}
+
+.blockConfigHeader h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.2px;
+}
+
+.blockConfigHeaderMain {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.blockConfigMeta {
+  font-size: 11px;
+  color: var(--color-text-secondary, #93a0b8);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+}
+
+.blockConfigType {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, var(--color-primary, #4c9aff) 38%, transparent);
+  background: color-mix(in srgb, var(--color-primary, #4c9aff) 13%, transparent);
+  color: color-mix(in srgb, var(--color-primary, #4c9aff) 55%, #fff);
+}
+
+.blockConfigStatusRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 16px 2px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  color: var(--color-text-secondary, #93a0b8);
+  background: color-mix(in srgb, var(--color-bg-secondary, #121a2e) 42%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border, #2a3550) 45%, transparent);
+}
+
+.blockConfigStatusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.blockConfigStatusDotOk {
+  background: #48c78e;
+  box-shadow: 0 0 0 3px rgba(72, 199, 142, 0.14);
+}
+
+.blockConfigStatusDotWarn {
+  background: #f0b429;
+  box-shadow: 0 0 0 3px rgba(240, 180, 41, 0.16);
+}
+
+.blockConfigStatusDotBad {
+  background: #ff6b6b;
+  box-shadow: 0 0 0 3px rgba(255, 107, 107, 0.16);
+}
+
+.blockConfigStatusSep {
+  width: 1px;
+  height: 12px;
+  margin: 0 4px;
+  background: color-mix(in srgb, var(--color-border, #2a3550) 70%, transparent);
+}
+
+.blockConfigContent {
+  padding-top: 10px;
+}
