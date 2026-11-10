@@ -145,6 +145,13 @@ const VALUE_FLAGS: &[&str] = &[
     "duration-ms",
     "button",
     "count",
+    "reference",
+    "heatmap",
+    "lang",
+    "limit",
+    "expect",
+    "scale",
+    "preview-max-width",
     "timeout-ms",
     "interval-ms",
     "ms",
@@ -161,6 +168,9 @@ const BOOLEAN_FLAGS: &[&str] = &[
     "help",
     "press-enter",
     "double",
+    "all",
+    "ocr",
+    "overwrite",
 ];
 
 #[derive(Debug, Default)]
@@ -271,6 +281,11 @@ pub fn run<I: IntoIterator<Item = String>>(argv: I) -> i32 {
         }
     };
 
+    if args.flag("help") {
+        print_help();
+        return EXIT_OK;
+    }
+
     let result = match args.command.as_str() {
         "help" => {
             print_help();
@@ -290,6 +305,10 @@ pub fn run<I: IntoIterator<Item = String>>(argv: I) -> i32 {
         "scroll" => cmd_scroll(&args),
         "drag" => cmd_drag(&args),
         "wait" => cmd_wait(&args),
+        "ocr" => cmd_ocr(&args),
+        "diff" => cmd_diff(&args),
+        "activate" => cmd_activate(&args),
+        "mouse-up" => cmd_mouse_up(&args),
         "run" => block_on(cmd_run(&args)),
         "step" => block_on(cmd_step(&args)),
         other => Err(CliError::usage(format!(
@@ -325,7 +344,7 @@ COMMANDS:
   list [flows|images]            List stored flows or image library entries
   get --flow FILE | --flow-id ID Print one flow JSON
   find --template FILE           Match a template on the current screen
-       [--roi x,y,w,h] [--threshold T] [--budget-ms N]
+       [--roi x,y,w,h] [--threshold T] [--budget-ms N] [--all] [--limit N]
   uia --window TITLE             Dump/filter UIA controls
        [--name X] [--automation-id X] [--class X] [--control-type X]
        [--index N] [--max-nodes N] [--max-depth N]
@@ -333,6 +352,7 @@ COMMANDS:
   click-target --coords x,y      Resolve and click a target
        | --template FILE
        | --uia --window TITLE [--name X|--automation-id X|--class X|--control-type X]
+       | --ocr --text TEXT [--window TITLE] [--lang L]
        [--dry-run] [--force]
   windows                        List visible top-level windows with rect and pid
   screenshot [--out FILE]        Capture the virtual desktop and save a PNG
@@ -344,6 +364,12 @@ COMMANDS:
        [--window TITLE]
   scroll --amount N              Scroll the mouse wheel (+up / -down)
        [--coords x,y]
+  ocr [--window TITLE|--region x,y,w,h|--image FILE]
+       [--lang chi_sim|eng|...] [--expect TEXT]
+  diff --reference FILE          Compare current screen/region/window
+       [--window TITLE|--region x,y,w,h] [--threshold 0-255] [--heatmap FILE]
+  activate --window TITLE        Raise/restore a window to the foreground
+  mouse-up [--button left|right|middle]  Release a stuck mouse button
   wait --window TITLE            Wait until a window appears (timeout-ms)
        | --uia --window TITLE [selectors]
        | --ms N
@@ -352,7 +378,7 @@ COMMANDS:
   run --flow FILE                Execute a flow headlessly and write evidence
        [--dry-run] [--retry N] [--report-dir DIR] [--no-screenshots]
        [--dpi-scale F]
-  step --flow FILE --index N     Execute N blocks from the cursor (control blocks run subtree)
+  step --flow FILE --index N     Execute N blocks from the entry (control blocks run subtree)
 
 GLOBAL:
   --json                         (all commands already print JSON)
@@ -702,6 +728,59 @@ fn cmd_find(args: &Args) -> Result<i32, CliError> {
 
     let matcher = ImageMatcher::with_config(MatchConfig::with_threshold(threshold));
     let started = Instant::now();
+
+    if args.flag("all") {
+        let limit = args
+            .value("limit")
+            .map(|v| v.parse::<usize>().map_err(|_| CliError::usage("invalid --limit")))
+            .transpose()?
+            .unwrap_or(10)
+            .max(1);
+        let (haystack, offset_x, offset_y) = if let Some(region) = region {
+            (
+                capture.image.crop_imm(region.x, region.y, region.width, region.height),
+                capture.origin_x + region.x as i32,
+                capture.origin_y + region.y as i32,
+            )
+        } else {
+            (capture.image.clone(), capture.origin_x, capture.origin_y)
+        };
+        let mut matches = matcher.find_all_images(&haystack, &template);
+        matches.sort_by(|a, b| {
+            b.confidence
+                .unwrap_or(0.0)
+                .partial_cmp(&a.confidence.unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        matches.truncate(limit);
+        let candidates: Vec<Value> = matches
+            .iter()
+            .map(|result| {
+                let cx = result.center_x.unwrap_or(0) as i32 + offset_x;
+                let cy = result.center_y.unwrap_or(0) as i32 + offset_y;
+                json!({
+                    "score": result.confidence.unwrap_or(0.0),
+                    "center": {"x": cx, "y": cy},
+                    "hitRect": image_rect(cx, cy, result.width.unwrap_or(0), result.height.unwrap_or(0)),
+                })
+            })
+            .collect();
+        let found = !candidates.is_empty();
+        println!(
+            "{}",
+            pretty(&json!({
+                "ok": found,
+                "found": found,
+                "count": candidates.len(),
+                "candidates": candidates,
+                "threshold": threshold,
+                "elapsedMs": started.elapsed().as_millis(),
+                "usedRoi": region.is_some(),
+            }))
+        );
+        return Ok(if found { EXIT_OK } else { EXIT_TARGET });
+    }
+
     let result = matcher.find_image_bounded(
         &capture.image,
         &template,
@@ -864,9 +943,7 @@ fn cmd_click_target(args: &Args) -> Result<i32, CliError> {
                     .transpose()?,
             };
             let node = if dry_run {
-                uia::find(window, &selector)
-                    .map_err(map_uia_error)?
-                    .ok_or_else(|| CliError::target("UIA control not found"))?
+                uia::inspect(window, &selector, force).map_err(map_uia_error)?
             } else {
                 uia::prepare_click(window, &selector, force).map_err(map_uia_error)?
             };
@@ -878,9 +955,25 @@ fn cmd_click_target(args: &Args) -> Result<i32, CliError> {
             };
             (x, y, "uia".to_string(), evidence)
         }
+    } else if args.flag("ocr") {
+        #[cfg(not(windows))]
+        {
+            return Err(CliError::runtime("OCR is only available on Windows"));
+        }
+        #[cfg(windows)]
+        {
+            let text = args.require("text")?;
+            let (x, y, line_text, rect) = ocr_click_point(args, text)?;
+            let evidence = BlockEvidence {
+                score: None,
+                hit_rect: Some(HitRect::new(rect.0, rect.1, rect.2, rect.3)),
+                target: Some(format!("ocr \"{line_text}\"")),
+            };
+            (x, y, "ocr".to_string(), evidence)
+        }
     } else {
         return Err(CliError::usage(
-            "click-target needs --coords x,y, --template FILE, or --uia",
+            "click-target needs --coords x,y, --template FILE, --uia, or --ocr --text TEXT",
         ));
     };
 
@@ -1222,12 +1315,49 @@ fn parse_button(value: Option<&str>) -> Result<MouseButton, CliError> {
     }
 }
 
+fn validate_capture_region(x: i32, y: i32, width: u32, height: u32) -> Result<(), CliError> {
+    let monitors = ScreenCapture::list_monitors()
+        .map_err(|e| CliError::runtime(format!("cannot enumerate monitors: {e}")))?;
+    if monitors.is_empty() {
+        return Err(CliError::runtime("no monitors available"));
+    }
+    let min_x = monitors.iter().map(|m| m.x).min().unwrap_or(0);
+    let min_y = monitors.iter().map(|m| m.y).min().unwrap_or(0);
+    let max_x = monitors
+        .iter()
+        .map(|m| m.x + m.width as i32)
+        .max()
+        .unwrap_or(0);
+    let max_y = monitors
+        .iter()
+        .map(|m| m.y + m.height as i32)
+        .max()
+        .unwrap_or(0);
+    if x < min_x
+        || y < min_y
+        || x + width as i32 > max_x
+        || y + height as i32 > max_y
+    {
+        return Err(CliError::usage(format!(
+            "capture region ({x},{y},{width},{height}) is outside the virtual desktop              ({min_x},{min_y})..({max_x},{max_y})"
+        )));
+    }
+    Ok(())
+}
+
 fn cmd_screenshot(args: &Args) -> Result<i32, CliError> {
     let capture = if let Some(window) = args.value("window") {
         #[cfg(windows)]
         {
+            crate::platform::uia::raise_window(window).map_err(CliError::target)?;
+            if crate::platform::uia::window_is_minimized(window) {
+                return Err(CliError::target(format!(
+                    "window {window:?} is still minimized after activation"
+                )));
+            }
             let (x, y, w, h) = crate::platform::uia::window_rect(window)
                 .map_err(CliError::target)?;
+            validate_capture_region(x, y, w.max(1) as u32, h.max(1) as u32)?;
             ScreenCapture::capture_virtual_region(x, y, w.max(1) as u32, h.max(1) as u32)
                 .map_err(|e| CliError::runtime(format!("capture failed: {e}")))?
         }
@@ -1238,6 +1368,7 @@ fn cmd_screenshot(args: &Args) -> Result<i32, CliError> {
         }
     } else if let Some(roi) = args.value("roi").or_else(|| args.value("region")) {
         let (x, y, w, h) = parse_roi(roi)?;
+        validate_capture_region(x, y, w.max(1), h.max(1))?;
         ScreenCapture::capture_virtual_region(x, y, w.max(1), h.max(1))
             .map_err(|e| CliError::runtime(format!("capture failed: {e}")))?
     } else {
@@ -1274,6 +1405,12 @@ fn cmd_screenshot(args: &Args) -> Result<i32, CliError> {
             Local::now().format("%Y%m%d_%H%M%S_%3f")
         ))
     };
+    if out_path.exists() && !args.flag("overwrite") {
+        return Err(CliError::usage(format!(
+            "refusing to overwrite existing file {}; pass --overwrite",
+            out_path.display()
+        )));
+    }
     if let Some(parent) = out_path.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent)?;
@@ -1283,11 +1420,43 @@ fn cmd_screenshot(args: &Args) -> Result<i32, CliError> {
         .save(&out_path)
         .map_err(|e| CliError::runtime(format!("cannot save screenshot: {e}")))?;
 
+    // Keep the saved file at native resolution unless --max-width is given;
+    // optionally write a scaled preview for vision while the template file
+    // stays pixel-exact.
+    let preview_path = if let Some(preview_width) = args.value("preview-max-width") {
+        let preview_width = preview_width
+            .parse::<u32>()
+            .map_err(|_| CliError::usage("invalid --preview-max-width"))?
+            .max(1);
+        let preview = if image.width() > preview_width {
+            let height =
+                (image.height() as u64 * preview_width as u64 / image.width() as u64) as u32;
+            image.resize(
+                preview_width,
+                height.max(1),
+                image::imageops::FilterType::Triangle,
+            )
+        } else {
+            image.clone()
+        };
+        let path = out_path.with_file_name(format!(
+            "{}.preview.png",
+            out_path.file_stem().unwrap_or_default().to_string_lossy()
+        ));
+        preview
+            .save(&path)
+            .map_err(|e| CliError::runtime(format!("cannot save preview: {e}")))?;
+        Some(path)
+    } else {
+        None
+    };
+
     println!(
         "{}",
         pretty(&json!({
             "ok": true,
             "path": out_path.to_string_lossy(),
+            "previewPath": preview_path.as_ref().map(|p| p.to_string_lossy()),
             "width": image.width(),
             "height": image.height(),
             "originX": capture.origin_x,
@@ -1332,6 +1501,11 @@ fn cmd_type(args: &Args) -> Result<i32, CliError> {
             let mut input = InputController::new()?;
             input.click_at(node.cx(), node.cy(), MouseButton::Left)?;
             std::thread::sleep(Duration::from_millis(120));
+            if !crate::platform::uia::is_foreground_window(window) {
+                return Err(CliError::target(format!(
+                    "window {window:?} did not become foreground; refusing to type into an unknown window"
+                )));
+            }
             focused = true;
         }
     } else if let Some(window) = args.value("window") {
@@ -1339,6 +1513,11 @@ fn cmd_type(args: &Args) -> Result<i32, CliError> {
         {
             crate::platform::uia::raise_window(window).map_err(CliError::target)?;
             std::thread::sleep(Duration::from_millis(120));
+            if !crate::platform::uia::is_foreground_window(window) {
+                return Err(CliError::target(format!(
+                    "window {window:?} did not become foreground; refusing to type into an unknown window"
+                )));
+            }
             focused = true;
         }
         #[cfg(not(windows))]
@@ -1403,6 +1582,11 @@ fn cmd_key(args: &Args) -> Result<i32, CliError> {
         {
             crate::platform::uia::raise_window(window).map_err(CliError::target)?;
             std::thread::sleep(Duration::from_millis(120));
+            if !crate::platform::uia::is_foreground_window(window) {
+                return Err(CliError::target(format!(
+                    "window {window:?} did not become foreground; refusing to send keys"
+                )));
+            }
         }
         #[cfg(not(windows))]
         {
@@ -1452,7 +1636,8 @@ fn cmd_drag(args: &Args) -> Result<i32, CliError> {
         .value("duration-ms")
         .map(|v| v.parse::<u64>().map_err(|_| CliError::usage("invalid --duration-ms")))
         .transpose()?
-        .unwrap_or(400);
+        .unwrap_or(400)
+        .min(30_000);
     let button = parse_button(args.value("button"))?;
     let mut input = InputController::new()?;
     input.drag(from_x, from_y, to_x, to_y, duration, button)?;
@@ -1469,6 +1654,9 @@ fn cmd_drag(args: &Args) -> Result<i32, CliError> {
 }
 
 fn cmd_wait(args: &Args) -> Result<i32, CliError> {
+    if args.value("expect-value").is_some() && !args.flag("uia") {
+        return Err(CliError::usage("--expect-value requires --uia"));
+    }
     let timeout_ms = args
         .value("timeout-ms")
         .map(|v| v.parse::<u64>().map_err(|_| CliError::usage("invalid --timeout-ms")))
@@ -1594,6 +1782,254 @@ fn cmd_wait(args: &Args) -> Result<i32, CliError> {
     }
 
     Err(CliError::usage("wait needs --window, --uia or --ms"))
+}
+
+fn capture_from_args(
+    args: &Args,
+) -> Result<(image::DynamicImage, i32, i32), CliError> {
+    if let Some(path) = args.value("image") {
+        let image = image::open(path)
+            .map_err(|e| CliError::usage(format!("cannot open image {path:?}: {e}")))?;
+        return Ok((image, 0, 0));
+    }
+    if let Some(window) = args.value("window") {
+        #[cfg(windows)]
+        {
+            // Bring the target forward: capturing a covered window would
+            // otherwise return the covering window's pixels.
+            crate::platform::uia::raise_window(window).map_err(CliError::target)?;
+            let (x, y, w, h) = crate::platform::uia::window_rect(window)
+                .map_err(CliError::target)?;
+            validate_capture_region(x, y, w.max(1) as u32, h.max(1) as u32)?;
+            let capture = ScreenCapture::capture_virtual_region(
+                x,
+                y,
+                w.max(1) as u32,
+                h.max(1) as u32,
+            )
+            .map_err(|e| CliError::runtime(format!("capture failed: {e}")))?;
+            return Ok((capture.image, capture.origin_x, capture.origin_y));
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = window;
+            return Err(CliError::runtime("window capture is only available on Windows"));
+        }
+    }
+    if let Some(roi) = args.value("roi").or_else(|| args.value("region")) {
+        let (x, y, w, h) = parse_roi(roi)?;
+        validate_capture_region(x, y, w.max(1), h.max(1))?;
+        let capture = ScreenCapture::capture_virtual_region(x, y, w.max(1), h.max(1))
+            .map_err(|e| CliError::runtime(format!("capture failed: {e}")))?;
+        return Ok((capture.image, capture.origin_x, capture.origin_y));
+    }
+    let capture = ScreenCapture::capture_virtual_desktop()
+        .map_err(|e| CliError::runtime(format!("capture failed: {e}")))?;
+    Ok((capture.image, capture.origin_x, capture.origin_y))
+}
+
+fn normalize_ocr_text(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_whitespace())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
+fn ocr_scale(args: &Args) -> Result<f32, CliError> {
+    let scale = args
+        .value("scale")
+        .map(|v| v.parse::<f32>().map_err(|_| CliError::usage("invalid --scale")))
+        .transpose()?
+        .unwrap_or(1.0);
+    if !(1.0..=4.0).contains(&scale) {
+        return Err(CliError::usage("--scale must be between 1 and 4"));
+    }
+    Ok(scale)
+}
+
+fn cmd_ocr(args: &Args) -> Result<i32, CliError> {
+    let (mut image, origin_x, origin_y) = capture_from_args(args)?;
+    let scale = ocr_scale(args)?;
+    if scale > 1.0 {
+        let width = (image.width() as f32 * scale).round().max(1.0) as u32;
+        let height = (image.height() as f32 * scale).round().max(1.0) as u32;
+        image = image.resize_exact(width, height, image::imageops::FilterType::Lanczos3);
+    }
+    let rgba = image.to_rgba8();
+    let language = args.value("lang");
+    let result = crate::core::ocr::recognize_text(&rgba, language)
+        .map_err(CliError::from)?;
+
+    let expect = args.value("expect");
+    let matched = expect
+        .map(|text| {
+            normalize_ocr_text(&result.text).contains(&normalize_ocr_text(text))
+        })
+        .unwrap_or(true);
+    let lines: Vec<Value> = result
+        .lines
+        .iter()
+        .map(|line| {
+            let x = (line.x as f32 / scale).round() as i32;
+            let y = (line.y as f32 / scale).round() as i32;
+            let width = (line.width as f32 / scale).round() as u32;
+            let height = (line.height as f32 / scale).round() as u32;
+            let screen_x = x + origin_x;
+            let screen_y = y + origin_y;
+            json!({
+                "text": line.text,
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height,
+                "screenX": screen_x,
+                "screenY": screen_y,
+                "screenCenterX": screen_x + (width / 2) as i32,
+                "screenCenterY": screen_y + (height / 2) as i32,
+            })
+        })
+        .collect();
+
+    println!(
+        "{}",
+        pretty(&json!({
+            "ok": if expect.is_some() { matched } else { true },
+            "text": result.text,
+            "lineCount": result.lines.len(),
+            "lines": lines,
+            "originX": origin_x,
+            "originY": origin_y,
+            "expect": expect,
+            "matched": expect.map(|_| matched),
+        }))
+    );
+    Ok(if matched { EXIT_OK } else { EXIT_ASSERT })
+}
+
+fn cmd_diff(args: &Args) -> Result<i32, CliError> {
+    let reference_path = args.require("reference")?;
+    let reference = image::open(reference_path).map_err(|e| {
+        CliError::usage(format!("cannot open reference {reference_path:?}: {e}"))
+    })?;
+    let (actual, _, _) = capture_from_args(args)?;
+    let threshold = args
+        .value("threshold")
+        .map(|v| v.parse::<u8>().map_err(|_| CliError::usage("invalid --threshold")))
+        .transpose()?
+        .unwrap_or(30);
+
+    let matcher = ImageMatcher::new();
+    let started = Instant::now();
+    let diff = matcher.diff_images(&reference, &actual, threshold, true);
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+
+    let heatmap_path = if let Some(heatmap) = diff.diff_image.as_ref() {
+        let path = if let Some(out) = args.value("heatmap") {
+            PathBuf::from(out)
+        } else {
+            let dir = data_dir(args).join("diffs");
+            fs::create_dir_all(&dir)?;
+            dir.join(format!(
+                "diff_{}.png",
+                Local::now().format("%Y%m%d_%H%M%S_%3f")
+            ))
+        };
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent)?;
+            }
+        }
+        heatmap
+            .save(&path)
+            .map_err(|e| CliError::runtime(format!("cannot save heatmap: {e}")))?;
+        Some(path.to_string_lossy().to_string())
+    } else {
+        None
+    };
+
+    println!(
+        "{}",
+        pretty(&json!({
+            "ok": diff.passed,
+            "passed": diff.passed,
+            "diffPercentage": diff.diff_percentage,
+            "diffPixelCount": diff.diff_pixel_count,
+            "totalPixels": diff.total_pixels,
+            "threshold": threshold,
+            "elapsedMs": elapsed_ms,
+            "heatmap": heatmap_path,
+        }))
+    );
+    Ok(if diff.passed { EXIT_OK } else { EXIT_ASSERT })
+}
+
+fn cmd_mouse_up(args: &Args) -> Result<i32, CliError> {
+    let button = parse_button(args.value("button"))?;
+    let mut input = InputController::new()?;
+    input.mouse_up(button)?;
+    println!(
+        "{}",
+        pretty(&json!({"ok": true, "released": args.value("button").unwrap_or("left")}))
+    );
+    Ok(EXIT_OK)
+}
+
+fn cmd_activate(args: &Args) -> Result<i32, CliError> {
+    #[cfg(not(windows))]
+    {
+        let _ = args;
+        return Err(CliError::runtime("window activation is only available on Windows"));
+    }
+    #[cfg(windows)]
+    {
+        let window = args.require("window")?;
+        crate::platform::uia::raise_window(window).map_err(CliError::target)?;
+        let rect = crate::platform::uia::window_rect(window).ok();
+        println!(
+            "{}",
+            pretty(&json!({
+                "ok": true,
+                "window": window,
+                "rect": rect.map(|(x, y, w, h)| json!({"x": x, "y": y, "width": w, "height": h})),
+            }))
+        );
+        Ok(EXIT_OK)
+    }
+}
+
+#[cfg(windows)]
+fn ocr_click_point(
+    args: &Args,
+    text: &str,
+) -> Result<(i32, i32, String, (i32, i32, u32, u32)), CliError> {
+    let (mut image, origin_x, origin_y) = capture_from_args(args)?;
+    let scale = ocr_scale(args)?;
+    if scale > 1.0 {
+        let width = (image.width() as f32 * scale).round().max(1.0) as u32;
+        let height = (image.height() as f32 * scale).round().max(1.0) as u32;
+        image = image.resize_exact(width, height, image::imageops::FilterType::Lanczos3);
+    }
+    let rgba = image.to_rgba8();
+    let result = crate::core::ocr::recognize_text(&rgba, args.value("lang"))
+        .map_err(CliError::from)?;
+    let needle = normalize_ocr_text(text);
+    let line = result
+        .lines
+        .iter()
+        .find(|line| normalize_ocr_text(&line.text).contains(&needle))
+        .ok_or_else(|| CliError::target(format!("OCR text not found: {text:?}")))?;
+    let lx = (line.x as f32 / scale).round() as i32;
+    let ly = (line.y as f32 / scale).round() as i32;
+    let lw = (line.width as f32 / scale).round() as u32;
+    let lh = (line.height as f32 / scale).round() as u32;
+    let x = origin_x + lx + (lw / 2) as i32;
+    let y = origin_y + ly + (lh / 2) as i32;
+    Ok((
+        x,
+        y,
+        line.text.clone(),
+        (origin_x + lx, origin_y + ly, lw, lh),
+    ))
 }
 
 fn build_executor(
@@ -1791,6 +2227,7 @@ async fn cmd_step(args: &Args) -> Result<i32, CliError> {
             "report": report_dir.to_string_lossy(),
             "stepsRequested": count,
             "stepCount": steps.len(),
+            "note": "cursor is not persisted between invocations; step runs from the entry each time",
             "error": error,
             "exitCode": exit_code,
         }))
@@ -1869,6 +2306,13 @@ mod tests {
         assert_eq!(exit_code_for_message("image not found on screen"), EXIT_TARGET);
         assert_eq!(exit_code_for_message("UIA 控件被遮挡"), EXIT_TARGET);
         assert_eq!(exit_code_for_message("assertion failed"), EXIT_ASSERT);
+    }
+
+    #[test]
+    fn ocr_text_normalization_ignores_spaces_and_case() {
+        assert_eq!(normalize_ocr_text("Sub mi t"), "submit");
+        assert_eq!(normalize_ocr_text("已 保 存"), "已保存");
+        assert!(normalize_ocr_text("VAD AI TASK").contains("vadai"));
     }
 
     #[test]

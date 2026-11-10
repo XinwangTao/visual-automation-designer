@@ -14,6 +14,10 @@
 - **液态玻璃背景（重做）**：低饱和漂移光场 + 细颗粒；工具栏/侧栏/画布/日志/配置/弹窗全部浮动磨砂玻璃，带渐变边框、内高光与柔和阴影；积木图标统一为单色线性 SVG，移除可见 emoji；支持 `prefers-reduced-motion`。
 - **液态玻璃背景**：缓慢漂移的彩色光场 + 磨砂工具栏/侧栏/日志/弹窗（backdrop-filter），并提供 `prefers-reduced-motion` 降级。
 - **GUI 试跑**：工具栏新增「试跑」按钮与 `dry_run_flow` 命令，按真实控制流解析目标但不点击、不输入、不提窗、不等待，返回每步证据。
+- **OCR 验证与文字点击**：修复 Windows OCR（IBuffer 直接建位图、真实行坐标、语言标签映射、`--scale` 放大）；新增 `vadctl ocr` / MCP `vad_ocr`，`click-target --ocr --text` 可按屏幕文字点击。
+- **视觉断言**：`vadctl diff` / MCP `vad_diff` 对比参考图，返回差异率与热力图；`find --all` 返回多候选与分数。
+- **窗口激活**：`vadctl activate` / MCP `vad_activate` 只提窗不点击；窗口截图/OCR 前自动提窗，避免截到覆盖者。
+- **安全约束**：`type`/`key` 在目标未真正前台时拒绝输入；drag 失败也会释放鼠标键，MCP 超时 best-effort mouse-up；截图默认拒绝覆盖、原图与预览分离；`--help` 不再触发真实动作；`wait --expect-value` 必须配 `--uia`。
 - **UIA 值读取**：`UIA` 节点新增 `value`（ValuePattern），`vad_wait` 支持 `--expect-value` / MCP `expectValue`，可等待编辑框/下拉框出现指定文本。
 - **Agent 闭环原语**：`vadctl windows`（窗口+矩形+pid）、`screenshot`（全屏/区域/窗口，可缩放）、`type`、`key`、`scroll`、`drag`、`wait`（窗口/控件/纯等待）；点击支持左右键/双击/次数。
 - **MCP 14 工具**：新增 `vad_windows` / `vad_screenshot` / `vad_type` / `vad_key` / `vad_scroll` / `vad_drag` / `vad_wait`；`vad_screenshot` 直接返回 image content，Claude 可在对话里直接看图。

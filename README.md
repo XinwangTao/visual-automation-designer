@@ -59,7 +59,7 @@ vadctl doctor                                  # 数据目录/显示器/输入/U
 vadctl validate --flow flow.json               # 结构化校验错误（含 blockId）
 vadctl run --flow flow.json --dry-run          # 只解析目标，不点击
 vadctl run --flow flow.json                    # 真跑并写证据
-vadctl step --flow flow.json --index 3         # 只执行前 3 个块
+vadctl step --flow flow.json --index 3         # 从入口执行前 3 个块（游标不跨进程）
 vadctl find --template ok.png --roi 0,0,800,600
 vadctl uia --window "记事本" --name 编辑 --control-type Edit
 vadctl click-target --uia --window "记事本" --name 确定 --dry-run
@@ -73,6 +73,12 @@ vadctl scroll --amount -3 --coords 1200,700
 vadctl drag --from 100,100 --to 400,300 --duration-ms 500
 vadctl wait --window "记事本" --timeout-ms 5000
 vadctl wait --uia --window "记事本" --automation-id 15 --expect-value "已保存" --timeout-ms 5000
+vadctl find --template ok.png --all --limit 5         # 多候选（含分数/矩形）
+vadctl ocr --window "记事本" --lang chi_sim --expect 保存
+vadctl ocr --window "记事本" --lang chi_sim --scale 2  # 小字号放大后识别
+vadctl click-target --ocr --window "记事本" --text 保存 --lang chi_sim
+vadctl diff --reference before.png --window "记事本" --threshold 30
+vadctl activate --window "记事本"
 ```
 
 `docs/AI_AGENT_PLAYBOOK.md` 给出了 Claude Code 用 MCP 完成任意 UI 任务的观察→执行→验证循环、选择器约定与安全规则。

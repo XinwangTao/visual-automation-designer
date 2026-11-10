@@ -159,7 +159,9 @@ fn tool_definitions() -> Vec<Value> {
                     "template": {"type": "string"},
                     "roi": {"type": "string", "description": "x,y,w,h in virtual-screen pixels"},
                     "threshold": {"type": "number"},
-                    "budgetMs": {"type": "integer"}
+                    "budgetMs": {"type": "integer"},
+                    "all": {"type": "boolean"},
+                    "limit": {"type": "integer"}
                 },
                 "required": ["template"]
             }
@@ -191,6 +193,11 @@ fn tool_definitions() -> Vec<Value> {
                     "coords": {"type": "string", "description": "x,y virtual-screen pixels"},
                     "template": {"type": "string"},
                     "uia": {"type": "boolean"},
+                    "ocr": {"type": "boolean", "description": "click text found by OCR"},
+                    "text": {"type": "string", "description": "OCR text to click"},
+                    "lang": {"type": "string"},
+                    "scale": {"type": "number"},
+                    "region": {"type": "string"},
                     "window": {"type": "string"},
                     "name": {"type": "string"},
                     "automationId": {"type": "string"},
@@ -200,8 +207,50 @@ fn tool_definitions() -> Vec<Value> {
                     "roi": {"type": "string"},
                     "threshold": {"type": "number"},
                     "dryRun": {"type": "boolean"},
-                    "force": {"type": "boolean"}
+                    "force": {"type": "boolean"},
+                    "button": {"type": "string", "enum": ["left", "right", "middle"]},
+                    "count": {"type": "integer"},
+                    "double": {"type": "boolean"}
                 }
+            }
+        }),
+        json!({
+            "name": "vad_ocr",
+            "description": "Run Windows OCR on the screen, a region, a window or an image; returns text and per-line screen rectangles. Use expect to assert a phrase.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "window": {"type": "string"},
+                    "region": {"type": "string", "description": "x,y,w,h in virtual-screen pixels"},
+                    "image": {"type": "string"},
+                    "lang": {"type": "string", "description": "chi_sim/chi_tra/eng/jpn/kor or BCP-47"},
+                    "expect": {"type": "string"},
+                    "scale": {"type": "number", "description": "Upscale before OCR (1-4), useful for small UI text"}
+                }
+            }
+        }),
+        json!({
+            "name": "vad_diff",
+            "description": "Compare the current screen/region/window with a reference image; returns diff percentage and an optional heatmap path.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "reference": {"type": "string"},
+                    "window": {"type": "string"},
+                    "region": {"type": "string"},
+                    "threshold": {"type": "integer", "description": "per-pixel diff threshold 0-255, default 30"},
+                    "heatmap": {"type": "string"}
+                },
+                "required": ["reference"]
+            }
+        }),
+        json!({
+            "name": "vad_activate",
+            "description": "Raise/restore a window to the foreground without clicking.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"window": {"type": "string"}},
+                "required": ["window"]
             }
         }),
         json!({
@@ -218,7 +267,9 @@ fn tool_definitions() -> Vec<Value> {
                     "out": {"type": "string"},
                     "region": {"type": "string", "description": "x,y,w,h in virtual-screen pixels"},
                     "window": {"type": "string"},
-                    "maxWidth": {"type": "integer"},
+                    "maxWidth": {"type": "integer", "description": "Scale the saved file (rarely needed)"},
+                    "previewMaxWidth": {"type": "integer", "description": "Scaled preview for vision; the saved file stays at native resolution"},
+                    "overwrite": {"type": "boolean"},
                     "dataDir": {"type": "string"}
                 }
             }
@@ -345,7 +396,11 @@ fn handle_tool_call(id: Value, params: &Value) -> Value {
             // addition to the saved file path in the JSON text.
             if success && name == "vad_screenshot" {
                 if let Ok(parsed) = serde_json::from_str::<Value>(&stdout) {
-                    if let Some(path) = parsed.get("path").and_then(Value::as_str) {
+                    let image_path = parsed
+                        .get("previewPath")
+                        .and_then(Value::as_str)
+                        .or_else(|| parsed.get("path").and_then(Value::as_str));
+                    if let Some(path) = image_path {
                         if let Ok(bytes) = fs::read(path) {
                             let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
                             content.push(json!({
@@ -459,6 +514,53 @@ fn build_args(tool: &str, args: &Value) -> Result<Vec<String>, String> {
             if let Some(budget) = get_int(args, "budgetMs") {
                 out.extend(["--budget-ms".into(), budget.to_string()]);
             }
+            if get_bool(args, "all") {
+                out.push("--all".into());
+            }
+            if let Some(limit) = get_int(args, "limit") {
+                out.extend(["--limit".into(), limit.to_string()]);
+            }
+        }
+        "vad_ocr" => {
+            out.push("ocr".into());
+            if let Some(window) = get_str(args, "window") {
+                out.extend(["--window".into(), window]);
+            }
+            if let Some(region) = get_str(args, "region") {
+                out.extend(["--region".into(), region]);
+            }
+            if let Some(image) = get_str(args, "image") {
+                out.extend(["--image".into(), image]);
+            }
+            if let Some(lang) = get_str(args, "lang") {
+                out.extend(["--lang".into(), lang]);
+            }
+            if let Some(expect) = get_str(args, "expect") {
+                out.extend(["--expect".into(), expect]);
+            }
+            if let Some(scale) = args.get("scale").and_then(Value::as_f64) {
+                out.extend(["--scale".into(), scale.to_string()]);
+            }
+        }
+        "vad_diff" => {
+            let reference = get_str(args, "reference").ok_or("missing required argument: reference")?;
+            out.extend(["diff".into(), "--reference".into(), reference]);
+            if let Some(window) = get_str(args, "window") {
+                out.extend(["--window".into(), window]);
+            }
+            if let Some(region) = get_str(args, "region") {
+                out.extend(["--region".into(), region]);
+            }
+            if let Some(threshold) = get_int(args, "threshold") {
+                out.extend(["--threshold".into(), threshold.to_string()]);
+            }
+            if let Some(heatmap) = get_str(args, "heatmap") {
+                out.extend(["--heatmap".into(), heatmap]);
+            }
+        }
+        "vad_activate" => {
+            let window = get_str(args, "window").ok_or("missing required argument: window")?;
+            out.extend(["activate".into(), "--window".into(), window]);
         }
         "vad_uia_find" => {
             if get_bool(args, "listWindows") {
@@ -489,11 +591,39 @@ fn build_args(tool: &str, args: &Value) -> Result<Vec<String>, String> {
             }
         }
         "vad_click_target" => {
+            let mode_count = [
+                get_str(args, "coords").is_some(),
+                get_str(args, "template").is_some(),
+                get_bool(args, "uia"),
+                get_bool(args, "ocr"),
+            ]
+            .iter()
+            .filter(|present| **present)
+            .count();
+            if mode_count != 1 {
+                return Err("click_target needs exactly one of coords, template, uia=true, ocr=true".into());
+            }
             out.push("click-target".into());
             if let Some(coords) = get_str(args, "coords") {
                 out.extend(["--coords".into(), coords]);
             } else if let Some(template) = get_str(args, "template") {
                 out.extend(["--template".into(), template]);
+            } else if get_bool(args, "ocr") {
+                out.push("--ocr".into());
+                let text = get_str(args, "text").ok_or("missing required argument: text")?;
+                out.extend(["--text".into(), text]);
+                if let Some(window) = get_str(args, "window") {
+                    out.extend(["--window".into(), window]);
+                }
+                if let Some(region) = get_str(args, "region") {
+                    out.extend(["--region".into(), region]);
+                }
+                if let Some(lang) = get_str(args, "lang") {
+                    out.extend(["--lang".into(), lang]);
+                }
+                if let Some(scale) = args.get("scale").and_then(Value::as_f64) {
+                    out.extend(["--scale".into(), scale.to_string()]);
+                }
             } else if get_bool(args, "uia") {
                 out.push("--uia".into());
                 let window =
@@ -542,17 +672,30 @@ fn build_args(tool: &str, args: &Value) -> Result<Vec<String>, String> {
             if let Some(window) = get_str(args, "window") {
                 out.extend(["--window".into(), window]);
             }
-            let max_width = get_int(args, "maxWidth").unwrap_or(1280);
-            out.extend(["--max-width".into(), max_width.to_string()]);
+            if let Some(max_width) = get_int(args, "maxWidth") {
+                out.extend(["--max-width".into(), max_width.to_string()]);
+            }
+            let preview_width = get_int(args, "previewMaxWidth").unwrap_or(1280);
+            out.extend(["--preview-max-width".into(), preview_width.to_string()]);
+            if get_bool(args, "overwrite") {
+                out.push("--overwrite".into());
+            }
             push_common(args, &mut out);
         }
         "vad_type" => {
             let text = get_str(args, "text").ok_or("missing required argument: text")?;
+            let has_selector = ["name", "automationId", "class", "controlType", "index"]
+                .iter()
+                .any(|key| args.get(*key).is_some());
+            let uia = get_bool(args, "uia");
+            if has_selector && !uia {
+                return Err("selector fields require uia=true; refusing to type into an unknown focus".into());
+            }
             out.extend(["type".into(), "--text".into(), text]);
             if let Some(window) = get_str(args, "window") {
                 out.extend(["--window".into(), window]);
             }
-            if get_bool(args, "uia") {
+            if uia {
                 out.push("--uia".into());
             }
             if let Some(interval) = get_int(args, "intervalMs") {
@@ -705,6 +848,13 @@ fn run_vadctl(args: &[String]) -> Result<(String, String, bool), String> {
                 let _ = child.wait();
                 let _ = stdout_reader.join();
                 let _ = stderr_reader.join();
+                // Best effort: a killed drag may leave the mouse button down.
+                let _ = Command::new(vadctl_path())
+                    .args(["mouse-up"])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn();
                 return Ok((
                     format!(
                         "{{\"ok\":false,\"error\":\"vadctl timed out after {timeout_secs}s\",\"exitCode\":5}}"

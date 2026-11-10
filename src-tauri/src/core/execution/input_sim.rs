@@ -111,13 +111,12 @@ impl Executor {
                         index: *index,
                     };
                     let node = if self.dry_run {
-                        crate::platform::uia::find(window, &selector)
-                            .map_err(AppError::ExecutionFailed)?
-                            .ok_or_else(|| {
-                                AppError::ExecutionFailed(format!(
-                                    "[dry-run] 未找到 UIA 控件: window={window:?} selector={selector:?}"
-                                ))
-                            })?
+                        crate::platform::uia::inspect(
+                            window,
+                            &selector,
+                            force.unwrap_or(false),
+                        )
+                        .map_err(AppError::ExecutionFailed)?
                     } else {
                         crate::platform::uia::prepare_click(
                             window,

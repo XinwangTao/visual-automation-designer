@@ -270,6 +270,24 @@ pub fn list_window_titles() -> Vec<String> {
         .collect()
 }
 
+/// Whether the matching window is minimized.
+pub fn window_is_minimized(title: &str) -> bool {
+    match find_window(title) {
+        Ok(hwnd) => unsafe { IsIconic(hwnd) }.as_bool(),
+        Err(_) => false,
+    }
+}
+
+/// Whether `title` currently owns the foreground window.
+pub fn is_foreground_window(title: &str) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
+    let Ok(hwnd) = find_window(title) else {
+        return false;
+    };
+    unsafe { GetForegroundWindow() == hwnd }
+}
+
 /// Bounding rectangle of a window in virtual-screen physical pixels.
 pub fn window_rect(title: &str) -> Result<(i32, i32, i32, i32), String> {
     let hwnd = find_window(title)?;
@@ -300,12 +318,18 @@ fn read_node(el: &IUIAutomationElement, depth: usize) -> UiaNode {
         Ok(r) => (r.left, r.top, r.right - r.left, r.bottom - r.top),
         Err(_) => (0, 0, 0, 0),
     };
-    let value = unsafe {
-        el.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
-            .ok()
-            .and_then(|pattern| pattern.CurrentValue().ok())
-            .map(|text| text.to_string())
-            .filter(|text| !text.is_empty())
+    // ValuePattern is a cross-process COM call; only ask controls that
+    // actually expose a value (Edit / ComboBox / Document).
+    let value = if matches!(control_type, 50003 | 50004 | 50030) {
+        unsafe {
+            el.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+                .ok()
+                .and_then(|pattern| pattern.CurrentValue().ok())
+                .map(|text| text.to_string())
+                .filter(|text| !text.is_empty())
+        }
+    } else {
+        None
     };
     let enabled = unsafe { el.CurrentIsEnabled() }
         .map(|b| b.as_bool())
@@ -337,15 +361,21 @@ fn walk(
     max_depth: usize,
     max_nodes: usize,
     selector: &Option<UiaSelector>,
+    stop_after: Option<usize>,
     out: &mut Vec<UiaNode>,
 ) {
     if level > max_depth || out.len() >= max_nodes {
         return;
     }
+    if stop_after.map(|limit| out.len() >= limit).unwrap_or(false) {
+        return;
+    }
     let mut child: WResult<IUIAutomationElement> =
         unsafe { walker.GetFirstChildElement(parent) };
     while let Ok(el) = child {
-        if out.len() >= max_nodes {
+        if out.len() >= max_nodes
+            || stop_after.map(|limit| out.len() >= limit).unwrap_or(false)
+        {
             break;
         }
         let node = read_node(&el, level);
@@ -355,10 +385,22 @@ fn walk(
             .unwrap_or(true);
         if matched && !node.offscreen && node.w > 0 && node.h > 0 {
             out.push(node);
+            if stop_after.map(|limit| out.len() >= limit).unwrap_or(false) {
+                return;
+            }
         }
         // Recurse even when this node is filtered out: the selector may target
         // a descendant of an unmatched container.
-        walk(walker, &el, level + 1, max_depth, max_nodes, selector, out);
+        walk(
+            walker,
+            &el,
+            level + 1,
+            max_depth,
+            max_nodes,
+            selector,
+            stop_after,
+            out,
+        );
         child = unsafe { walker.GetNextSiblingElement(&el) };
     }
 }
@@ -381,6 +423,16 @@ pub fn dump(
     max_depth: usize,
     selector: Option<UiaSelector>,
 ) -> Result<Vec<UiaNode>, String> {
+    dump_internal(window, max_nodes, max_depth, selector, None)
+}
+
+fn dump_internal(
+    window: &str,
+    max_nodes: usize,
+    max_depth: usize,
+    selector: Option<UiaSelector>,
+    stop_after: Option<usize>,
+) -> Result<Vec<UiaNode>, String> {
     let hwnd = find_window(window)?;
     let automation = automation()?;
     let root = unsafe { automation.ElementFromHandle(hwnd) }
@@ -395,6 +447,7 @@ pub fn dump(
         max_depth,
         max_nodes,
         &selector,
+        stop_after,
         &mut out,
     );
     if let Some(idx) = selector.as_ref().and_then(|s| s.index) {
@@ -413,7 +466,8 @@ pub fn find(window: &str, selector: &UiaSelector) -> Result<Option<UiaNode>, Str
             "UIA selector is empty: provide name / automation-id / class / control-type".into(),
         );
     }
-    let nodes = dump(window, 400, 12, Some(selector.clone()))?;
+    let stop_after = Some(selector.index.map(|index| index + 1).unwrap_or(1));
+    let nodes = dump_internal(window, 400, 12, Some(selector.clone()), stop_after)?;
     Ok(nodes.into_iter().next())
 }
 
@@ -488,6 +542,31 @@ pub fn occluder_at(title: &str, x: i32, y: i32) -> Result<Option<String>, String
     } else {
         name
     }))
+}
+
+/// Read-only inspection used by dry-run: resolve the control, reject disabled
+/// controls, and report an occluder without raising the window.
+pub fn inspect(window: &str, selector: &UiaSelector, force: bool) -> Result<UiaNode, String> {
+    if selector.is_empty() {
+        return Err("UIA selector is empty: provide name / automation-id / class / control-type".into());
+    }
+    let node = find(window, selector)?
+        .ok_or_else(|| format!("未找到 UIA 控件: window={window:?} selector={selector:?}"))?;
+    if !node.enabled {
+        return Err(format!(
+            "UIA 控件已禁用: {} \"{}\"",
+            node.control_type_name, node.name
+        ));
+    }
+    if !force {
+        if let Some(occluder) = occluder_at(window, node.cx(), node.cy())? {
+            return Err(format!(
+                "UIA 控件被遮挡: {} \"{}\" 被窗口 {:?} 覆盖",
+                node.control_type_name, node.name, occluder
+            ));
+        }
+    }
+    Ok(node)
 }
 
 /// Prepare a guarded UIA click.
@@ -577,6 +656,12 @@ mod tests {
             depth: 1,
         };
         assert!(sel.matches(&node));
+    }
+
+    #[test]
+    fn empty_selector_is_rejected_for_inspection() {
+        let err = inspect("whatever", &UiaSelector::default(), false).unwrap_err();
+        assert!(err.contains("selector"));
     }
 
     #[test]
