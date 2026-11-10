@@ -15,7 +15,7 @@ import { FlowCanvas, FlowToolbar } from './components/FlowEditor';
 import { ExecutionLog, executionEventToLogEntry } from './components/ExecutionStatus';
 import { Toolbox } from './components/BlockToolbox';
 import { BlockConfig } from './components/ConfigPanel';
-import { ConfirmDialog, useToast } from './components/common';
+import { ConfirmDialog, useSpotlight, useToast } from './components/common';
 import { useFlow, useExecution, useKeyboardShortcuts, useTheme, buildCanonicalFlow } from './hooks';
 import type { InternalExecutionEvent } from './hooks/useExecution';
 import type { Flow as TauriFlow, ValidationErrorResponse } from './tauri/flow';
@@ -86,6 +86,7 @@ export function AppShell() {
   } = useFlow();
 
   const { showToast } = useToast();
+  const spotlight = useSpotlight();
 
   const {
     status: executionStatus,
@@ -750,6 +751,7 @@ export function AppShell() {
 
   return (
     <div className="app">
+      <div className="lg-aurora" aria-hidden="true" />
       <FlowToolbar
         canUndo={canUndo}
         canRedo={canRedo}
@@ -947,7 +949,7 @@ export function AppShell() {
               <h3>积木块配置</h3>
               <p>点击积木块进行配置</p>
               {!flow && (
-                <div className="config-placeholder__hint-box">
+                <div className="config-placeholder__hint-box lg-spotlight" {...spotlight}>
                   <p className="config-placeholder__hint-title">快速开始</p>
                   <p className="config-placeholder__hint">1. 点击"新建"创建流程</p>
                   <p className="config-placeholder__hint">2. 从左侧拖动积木块到画布</p>
@@ -1023,7 +1025,7 @@ export function AppShell() {
 
       {showOnboarding && (
         <div className="app__onboarding" role="dialog" aria-modal="true">
-          <div className="app__onboarding-card">
+          <div className="app__onboarding-card lg-spotlight" {...spotlight}>
             <div className="app__onboarding-header">
               <div>
                 <p className="app__onboarding-eyebrow">Visual Automation Designer</p>

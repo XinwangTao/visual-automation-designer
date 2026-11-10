@@ -11,6 +11,7 @@
 - **图片匹配阈值可配**：点击（图片模式）与等待图片支持 `threshold`，GUI 与流程 JSON 双向保存。
 - **UIA 控件配置 UI**：窗口标题、名称、AutomationId、类名、控件类型、序号、跳过遮挡校验。
 - **UI Refresh**：新增 `styles/ui-refresh.css` 最终视觉层——紧凑工具栏与 SVG 图标、工具箱列表化、节点卡片缩小到 236px、配置面板统一输入/按钮、底部面板折叠清理、弹窗与流程列表重排、亮/暗主题统一。
+- **Inspira UI 风格交互（React/CSS 复刻，MIT）**：Aurora 极光背景、Card Spotlight 鼠标聚光、Shimmer 主按钮流光、选中/运行节点的 Border Beam、主按钮 Ripple 按压反馈。
 - **液态玻璃背景（重做）**：低饱和漂移光场 + 细颗粒；工具栏/侧栏/画布/日志/配置/弹窗全部浮动磨砂玻璃，带渐变边框、内高光与柔和阴影；积木图标统一为单色线性 SVG，移除可见 emoji；支持 `prefers-reduced-motion`。
 - **液态玻璃背景**：缓慢漂移的彩色光场 + 磨砂工具栏/侧栏/日志/弹窗（backdrop-filter），并提供 `prefers-reduced-motion` 降级。
 - **GUI 试跑**：工具栏新增「试跑」按钮与 `dry_run_flow` 命令，按真实控制流解析目标但不点击、不输入、不提窗、不等待，返回每步证据。

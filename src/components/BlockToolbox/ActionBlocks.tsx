@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { BlockGlyph } from '../common';
+import { BlockGlyph, useSpotlight } from '../common';
 import styles from './BlockToolbox.module.css';
 
 export type ActionType = 'click' | 'wait_image' | 'wait_time' | 'input_text' | 'screenshot_assert' | 'text_extract';
@@ -39,6 +39,7 @@ export interface ActionBlocksProps {
  */
 export function ActionBlocks({ onSelect, onArmPlacement, searchQuery = '' }: ActionBlocksProps) {
   const [draggingType, setDraggingType] = useState<string | null>(null);
+  const spotlight = useSpotlight();
 
   const createDragPayload = (type: ActionType) => JSON.stringify({
     blockType: type,
@@ -85,7 +86,8 @@ export function ActionBlocks({ onSelect, onArmPlacement, searchQuery = '' }: Act
       {filteredBlocks.map((block) => (
         <div
           key={block.type}
-          className={`${styles.actionBlocksItem} ${draggingType === block.type ? 'action-blocks__item--dragging' : ''}`}
+          className={`${styles.actionBlocksItem} lg-spotlight ${draggingType === block.type ? 'action-blocks__item--dragging' : ''}`}
+          {...spotlight}
           role="option"
           data-block-type={block.type}
           aria-label={`${block.label}：${block.description}`}

@@ -5,6 +5,7 @@ import './styles/tokens.css';
 import './main.css';
 import './styles/ui-refresh.css';
 import './styles/liquid-glass.css';
+import './styles/inspira-effects.css';
 import { logRuntimeIssue } from './tauri/logging';
 
 /**

@@ -1,4 +1,5 @@
 import type { FlowMetadata } from '../../tauri/flow';
+import { useSpotlight } from '../common';
 import styles from './App.module.css';
 
 export interface FlowListModalProps {
@@ -12,6 +13,7 @@ export interface FlowListModalProps {
 }
 
 export function FlowListModal({ isOpen, flowList, currentFlowId, onClose, onNew, onLoad, onDelete }: FlowListModalProps) {
+  const spotlight = useSpotlight();
   if (!isOpen) {
     return null;
   }
@@ -38,7 +40,7 @@ export function FlowListModal({ isOpen, flowList, currentFlowId, onClose, onNew,
             </div>
           ) : (
             flowList.map((meta) => (
-              <div key={meta.id} className={`${styles.flowListModalItem} ${currentFlowId === meta.id ? styles.flowListModalItemActive : ''}`}>
+              <div key={meta.id} className={`${styles.flowListModalItem} lg-spotlight ${currentFlowId === meta.id ? styles.flowListModalItemActive : ''}`} {...spotlight}>
                 <div className={styles.flowListModalItemInfo}>
                   <span className={styles.flowListModalItemName}>{meta.name}</span>
                   <span className={styles.flowListModalItemMeta}>

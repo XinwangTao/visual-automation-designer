@@ -1,0 +1,210 @@
+/**
+ * Inspira UI-inspired interaction layer.
+ *
+ * Inspira UI is MIT-licensed and targets Vue/Nuxt; this project is React.
+ * These are CSS/React adaptations of the visual behaviour:
+ * - Aurora Background (animated repeating gradient + radial mask)
+ * - Card Spotlight (pointer-following radial highlight)
+ * - Shimmer Button (animated sheen across primary actions)
+ * - Border Beam (rotating conic border on selected/running nodes)
+ * - Ripple/press feedback on primary buttons
+ */
+
+@property --lg-beam-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+/* ── Aurora background ─────────────────────────────────────────── */
+
+.lg-aurora {
+  position: fixed;
+  inset: -22%;
+  z-index: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    100deg,
+    rgba(59, 130, 246, 0.42) 8%,
+    rgba(165, 180, 252, 0.34) 14%,
+    rgba(147, 197, 253, 0.38) 20%,
+    rgba(221, 214, 254, 0.32) 26%,
+    rgba(96, 165, 250, 0.4) 32%
+  );
+  background-size: 300% 200%;
+  filter: blur(28px) saturate(145%);
+  opacity: 0.42;
+  mask-image: radial-gradient(ellipse at 82% 0%, #000 4%, transparent 68%);
+  -webkit-mask-image: radial-gradient(ellipse at 82% 0%, #000 4%, transparent 68%);
+  animation: lg-aurora-drift 46s linear infinite alternate;
+  mix-blend-mode: normal;
+}
+
+.theme-dark .lg-aurora {
+  opacity: 0.52;
+  filter: blur(32px) saturate(130%);
+}
+
+@keyframes lg-aurora-drift {
+  0% { background-position: 0% 50%; transform: translate3d(-1.5%, -1%, 0) scale(1.02); }
+  100% { background-position: 100% 50%; transform: translate3d(1.5%, 1.5%, 0) scale(1.05); }
+}
+
+/* ── Card Spotlight ────────────────────────────────────────────── */
+
+.lg-spotlight {
+  position: relative;
+}
+
+.lg-spotlight::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.28s ease;
+  background: radial-gradient(
+    190px circle at var(--spot-x, -9999px) var(--spot-y, -9999px),
+    rgba(255, 255, 255, 0.42),
+    transparent 66%
+  );
+}
+
+.lg-spotlight:hover::after {
+  opacity: 1;
+}
+
+.theme-dark .lg-spotlight::after {
+  background: radial-gradient(
+    190px circle at var(--spot-x, -9999px) var(--spot-y, -9999px),
+    rgba(130, 185, 255, 0.2),
+    transparent 66%
+  );
+}
+
+/* Keep content above the spotlight wash. */
+.lg-spotlight > * {
+  position: relative;
+  z-index: 4;
+}
+
+/* ── Shimmer primary buttons ───────────────────────────────────── */
+
+[data-testid="flow-toolbar"] button[class*="flowToolbarBtnPrimary"],
+.flow-list-modal__btn--primary,
+[class*="blockConfigBtnPrimary"],
+.confirm-dialog__btn--info,
+.config-placeholder__action-btn:first-child,
+.app__onboarding-card .app__onboarding-btn:not(.app__onboarding-btn--secondary) {
+  background-image:
+    linear-gradient(
+      110deg,
+      transparent 28%,
+      rgba(255, 255, 255, 0.3) 46%,
+      rgba(255, 255, 255, 0.05) 58%,
+      transparent 72%
+    ),
+    linear-gradient(180deg, #4f93e8 0%, #2e6fbd 100%);
+  background-size: 240% 100%, 100% 100%;
+  background-position: 130% 0, 0 0;
+  animation: lg-shimmer 5.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes lg-shimmer {
+  0%, 62% { background-position: 130% 0, 0 0; }
+  100% { background-position: -130% 0, 0 0; }
+}
+
+/* ── Ripple / press feedback ───────────────────────────────────── */
+
+[data-testid="flow-toolbar"] button[class*="flowToolbarBtnPrimary"]:active,
+.flow-list-modal__btn--primary:active,
+[class*="blockConfigBtnPrimary"]:active,
+.confirm-dialog__btn--info:active,
+.config-placeholder__action-btn:first-child:active,
+.app__onboarding-card .app__onboarding-btn:not(.app__onboarding-btn--secondary):active {
+  transform: translateY(1px) scale(0.995);
+  animation: lg-ripple 0.42s ease-out;
+}
+
+@keyframes lg-ripple {
+  0% { box-shadow: 0 0 0 0 rgba(120, 180, 255, 0.35); }
+  100% { box-shadow: 0 0 0 14px rgba(120, 180, 255, 0); }
+}
+
+/* ── Border Beam on selected / running nodes ───────────────────── */
+
+body .block-node--selected::after,
+body .block-node--executing::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  padding: 1.5px;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--lg-beam-angle),
+    transparent 0deg,
+    transparent 250deg,
+    rgba(96, 165, 250, 0.9) 300deg,
+    rgba(167, 139, 250, 0.85) 330deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: lg-beam-spin 4.5s linear infinite;
+}
+
+body .block-node--executing::after {
+  animation-duration: 2.6s;
+}
+
+@keyframes lg-beam-spin {
+  to { --lg-beam-angle: 360deg; }
+}
+
+/* ── Reduced motion ────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .lg-aurora,
+  [data-testid="flow-toolbar"] button[class*="flowToolbarBtnPrimary"],
+  .flow-list-modal__btn--primary,
+  [class*="blockConfigBtnPrimary"],
+  .confirm-dialog__btn--info,
+  .config-placeholder__action-btn:first-child,
+  .app__onboarding-card .app__onboarding-btn:not(.app__onboarding-btn--secondary),
+  body .block-node--selected::after,
+  body .block-node--executing::after {
+    animation: none;
+  }
+}
+
+/* Readability over the final glass layers */
+[class*="blockConfigLabel"] {
+  color: color-mix(in srgb, var(--vad-color-text-primary) 72%, transparent) !important;
+}
+
+[class*="blockConfigHint"] {
+  color: color-mix(in srgb, var(--vad-color-text-primary) 48%, transparent) !important;
+}
+
+[class*="blockConfigInput"],
+[class*="blockConfigSelect"],
+[class*="blockConfigTextarea"] {
+  background: color-mix(in srgb, var(--vad-color-text-primary) 6%, transparent) !important;
+  border-color: color-mix(in srgb, var(--vad-color-text-primary) 14%, transparent) !important;
+}
+
+[class*="executionLogFilterBtn"],
+[class*="vscode-panel-tab"] {
+  color: color-mix(in srgb, var(--vad-color-text-primary) 62%, transparent);
+}
+
+[class*="executionLogFilterBtnActive"] {
+  color: var(--vad-color-text-primary);
+}

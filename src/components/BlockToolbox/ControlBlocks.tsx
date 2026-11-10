@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { BlockGlyph } from '../common';
+import { BlockGlyph, useSpotlight } from '../common';
 import styles from './BlockToolbox.module.css';
 
 export type ControlType = 'loop' | 'loop_infinite' | 'condition' | 'text_check';
@@ -37,6 +37,7 @@ export interface ControlBlocksProps {
  */
 export function ControlBlocks({ onSelect, onArmPlacement, searchQuery = '' }: ControlBlocksProps) {
   const [draggingType, setDraggingType] = useState<string | null>(null);
+  const spotlight = useSpotlight();
 
   const createDragPayload = (type: ControlType) => JSON.stringify({
     blockType: type,
@@ -83,7 +84,8 @@ export function ControlBlocks({ onSelect, onArmPlacement, searchQuery = '' }: Co
       {filteredBlocks.map((block) => (
         <div
           key={block.type}
-          className={`${styles.controlBlocksItem} ${draggingType === block.type ? 'control-blocks__item--dragging' : ''}`}
+          className={`${styles.controlBlocksItem} lg-spotlight ${draggingType === block.type ? 'control-blocks__item--dragging' : ''}`}
+          {...spotlight}
           role="option"
           data-block-type={block.type}
           aria-label={`${block.label}：${block.description}`}
