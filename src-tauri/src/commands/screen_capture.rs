@@ -99,7 +99,7 @@ fn encode_png(image: &image::DynamicImage) -> Result<Vec<u8>> {
 /// Capture the virtual desktop and return a preview for the in-app picker.
 /// Hide the app window while capturing so the frozen image shows the real
 /// desktop, not the app's own dialog.
-fn capture_without_app<T>(
+pub(crate) fn capture_without_app<T>(
     app: &AppHandle,
     capture: impl FnOnce() -> Result<T>,
 ) -> Result<T> {

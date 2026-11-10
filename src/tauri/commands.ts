@@ -333,6 +333,8 @@ export interface ImageTargetTest {
   threshold: number;
   center?: TargetPoint;
   hitRect?: TargetRect;
+  /** 实际搜索的屏幕区域（ROI 裁剪后）；为空表示搜索整个桌面。 */
+  searchedRegion?: TargetRect;
   elapsedMs: number;
   target: string;
   error?: string;

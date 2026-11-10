@@ -21,6 +21,11 @@ use crate::models::ImageId;
 
 use super::cache::{CacheKey, MatchCache, MatchCacheConfig};
 
+/// Target short side (px) for the downscaled template in the coarse pass.
+const PYRAMID_MIN_TEMPLATE: u32 = 12;
+/// Upper bound on the downscale factor for the coarse pass.
+const PYRAMID_MAX_FACTOR: u32 = 16;
+
 /// Result of an image match operation
 #[derive(Debug, Clone)]
 pub struct MatchResult {
@@ -452,6 +457,54 @@ impl ImageMatcher {
         };
         let region_image = cropped.as_ref().unwrap_or(haystack);
         let needle_cache = Self::precompute_needle(needle);
+
+        // ── 粗到细 ──────────────────────────────────────────────────
+        // 全屏逐像素扫描是 O(位置 × 模板像素)：2560x1440 配 200x100 模板约 600 亿
+        // 次乘加，既跑不完也付不起「跳着扫」。旧实现直接按步长 6 扫描，真实位置
+        // (700,400) 永远采不到，精修又只在粗搜最优点附近做，结果就是明明一模一样
+        // 却只报 26%。这里先在缩小的图上找候选，再只把候选附近的小窗口裁剪出来
+        // 做全分辨率校验——整幅大图的灰度/积分图都不用建。
+        if let Some((seed_x, seed_y, factor)) =
+            self.pyramid_seed(region_image, needle, budget.mul_f64(0.5))
+        {
+            let margin = factor * 2 + 4;
+            let win_x = seed_x.saturating_sub(margin);
+            let win_y = seed_y.saturating_sub(margin);
+            let win_w = (2 * margin + needle_width).min(region_image.width() - win_x);
+            let win_h = (2 * margin + needle_height).min(region_image.height() - win_y);
+
+            if win_w >= needle_width && win_h >= needle_height {
+                let window = region_image.crop_imm(win_x, win_y, win_w, win_h);
+                let (win_gray, win_sat) = Self::precompute_haystack(&window);
+                let max_x = win_w - needle_width;
+                let max_y = win_h - needle_height;
+
+                let mut best_x = 0u32;
+                let mut best_y = 0u32;
+                let mut best_score = -2.0f64;
+                for y in 0..=max_y {
+                    for x in 0..=max_x {
+                        let score =
+                            self.calculate_ncc_at(&win_gray, &win_sat, &needle_cache, x, y);
+                        if score > best_score {
+                            best_score = score;
+                            best_x = x;
+                            best_y = y;
+                        }
+                    }
+                }
+                if best_score >= self.config.threshold {
+                    return MatchResult::found(
+                        rx + win_x + best_x + needle_width / 2,
+                        ry + win_y + best_y + needle_height / 2,
+                        best_score,
+                        needle_width,
+                        needle_height,
+                    );
+                }
+            }
+        }
+
         let (gray, sat) = Self::precompute_haystack(region_image);
 
         let deadline = Instant::now() + budget;
@@ -568,6 +621,57 @@ impl ImageMatcher {
     /// Returns `(best_x, best_y, best_score, budget_exhausted)`. When the
     /// deadline is hit, the best score seen so far is returned (never a
     /// fabricated match); callers decide whether it clears their threshold.
+    /// Downscale both images and run one full pass on the cheap copy.
+    ///
+    /// Returns the best position scaled back into full-resolution coordinates
+    /// plus the factor that was used, so the caller can size its refinement
+    /// window to the residual error.
+    fn pyramid_seed(
+        &self,
+        haystack: &DynamicImage,
+        needle: &DynamicImage,
+        budget: Duration,
+    ) -> Option<(u32, u32, u32)> {
+        let (hw, hh) = (haystack.width(), haystack.height());
+        let (nw, nh) = (needle.width(), needle.height());
+        // Small searches are already cheap; below this the downscale would only
+        // cost accuracy.
+        if hw < 800 || hh < 600 || nw < 40 || nh < 40 {
+            return None;
+        }
+
+        // Keep the coarse template around `PYRAMID_MIN_TEMPLATE` px on its
+        // short side: big enough to stay discriminative, small enough that the
+        // scan is cheap.
+        let factor = (nw.min(nh) / PYRAMID_MIN_TEMPLATE).clamp(1, PYRAMID_MAX_FACTOR);
+        if factor < 2 {
+            return None;
+        }
+
+        let sw = (hw / factor).max(1);
+        let sh = (hh / factor).max(1);
+        let snw = (nw / factor).max(1);
+        let snh = (nh / factor).max(1);
+        if snw > sw || snh > sh {
+            return None;
+        }
+
+        let small_haystack =
+            haystack.resize_exact(sw, sh, image::imageops::FilterType::Triangle);
+        let small_needle =
+            needle.resize_exact(snw, snh, image::imageops::FilterType::Triangle);
+        let needle_cache = Self::precompute_needle(&small_needle);
+        let (gray, sat) = Self::precompute_haystack(&small_haystack);
+
+        let deadline = Instant::now() + budget;
+        let (best_x, best_y, _score, exhausted) =
+            self.template_match_bounded(&gray, &sat, &needle_cache, Some(deadline), false);
+        if exhausted && best_x == 0 && best_y == 0 {
+            return None;
+        }
+        Some((best_x * factor, best_y * factor, factor))
+    }
+
     fn template_match_bounded(
         &self,
         gray: &GrayBuffer,
@@ -2289,6 +2393,60 @@ mod tests {
             assert_eq!(result.center_x, Some(expected_cx), "Center x in large haystack");
             assert_eq!(result.center_y, Some(expected_cy), "Center y in large haystack");
         }
+    }
+
+    #[test]
+    fn should_find_exact_match_without_roi_on_desktop_scale_image() {
+        // 回归：全屏搜索曾按步长 6 扫描，模板放在非整倍位置时永远采不到，
+        // 明明逐像素相同却只报 26%。桌面尺度（1200x900 以上）必须能命中。
+        let matcher = ImageMatcher::with_config(MatchConfig::with_threshold(0.9));
+
+        let (w, h) = (1200, 900);
+        let (nw, nh) = (120, 80);
+        let (origin_x, origin_y) = (701, 403);
+
+        let haystack_img = {
+            // 雪崩哈希图案：每个像素独立，避免夹具自身出现行/列别名
+            //（旧的 position_hash 在 y=403 / y=712 上几乎重合）。
+            let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(w, h);
+            for y in 0..h {
+                for x in 0..w {
+                    let mut v = x.wrapping_mul(2654435761) ^ y.wrapping_mul(40503);
+                    v ^= v >> 13;
+                    v = v.wrapping_mul(1274126177);
+                    v ^= v >> 16;
+                    let c = (v & 0xFF) as u8;
+                    img.put_pixel(x, y, Rgba([c, c.wrapping_add(37), c, 255]));
+                }
+            }
+            img
+        };
+        let mut needle_img = ImageBuffer::new(nw, nh);
+        for y in 0..nh {
+            for x in 0..nw {
+                let p = haystack_img.get_pixel(origin_x + x, origin_y + y);
+                needle_img.put_pixel(x, y, Rgba([p[0], p[1], p[2], p[3]]));
+            }
+        }
+
+        let haystack = DynamicImage::ImageRgba8(haystack_img);
+        let needle = DynamicImage::ImageRgba8(needle_img);
+
+        let result =
+            matcher.find_image_bounded(&haystack, &needle, None, Duration::from_millis(3000));
+
+        assert!(
+            result.found,
+            "exact template must be found without an ROI, confidence={:?}",
+            result.confidence
+        );
+        assert_eq!(result.center_x, Some(origin_x + nw / 2));
+        assert_eq!(result.center_y, Some(origin_y + nh / 2));
+        assert!(
+            result.confidence.unwrap_or(0.0) > 0.99,
+            "score should be ~1.0, got {:?}",
+            result.confidence
+        );
     }
 
     #[test]

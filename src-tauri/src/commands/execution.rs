@@ -159,9 +159,22 @@ pub async fn execute_flow(
     let tracked_status = Arc::clone(&execution_state.status);
     let app_handle = execution_state.app_handle.clone();
 
+    // 运行期间把主窗口最小化：本窗口自己会挡住流程要点击的目标，
+    // 图像匹配和坐标点击都因此失败。
+    let run_window = app_handle.get_webview_window("main");
+    if let Some(window) = run_window.as_ref() {
+        let _ = window.minimize();
+    }
+
     tauri::async_runtime::spawn(async move {
         let result = executor.start().await;
         let final_status = executor.status().await;
+
+        // 跑完把窗口还回来（用户中途自己恢复过也无妨）。
+        if let Some(window) = run_window.as_ref() {
+            let _ = window.unminimize();
+            let _ = window.show();
+        }
 
         if let Err(error) = result {
             crate::logging::log_error(
@@ -578,8 +591,17 @@ pub async fn dry_run_flow(
     executor.set_dry_run(true);
     executor.set_retry_limit(0);
 
+    // 试跑同样要截屏找目标，窗口不挪开就会挡住靶点。
+    let run_window = execution_state.app_handle.get_webview_window("main");
+    if let Some(window) = run_window.as_ref() {
+        let _ = window.minimize();
+    }
     let result = executor.start().await;
     let status = executor.status().await;
+    if let Some(window) = run_window.as_ref() {
+        let _ = window.unminimize();
+        let _ = window.show();
+    }
     let steps = sink
         .steps
         .lock()

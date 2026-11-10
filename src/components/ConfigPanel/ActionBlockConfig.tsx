@@ -119,10 +119,18 @@ export function ClickConfigUI({ config, onChange }: ConfigUIProps) {
             ].filter(Boolean).join(' · '),
           });
         } else {
+          // 失败时把「实际搜了哪里」讲清楚：ROI 设小了是最常见的误判原因。
+          const searched = result.searchedRegion;
           setTestResult({
             tone: 'error',
             title: '未找到图片目标',
-            detail: `${describeScore(result.score, result.threshold)} · 用时 ${result.elapsedMs}ms`,
+            detail: [
+              describeScore(result.score, result.threshold),
+              searched
+                ? `搜索区域 (${searched.x}, ${searched.y}) ${searched.width}×${searched.height}`
+                : '搜索整个桌面',
+              `用时 ${result.elapsedMs}ms`,
+            ].filter(Boolean).join(' · '),
           });
         }
       } catch (error) {
@@ -404,7 +412,7 @@ export function ClickConfigUI({ config, onChange }: ConfigUIProps) {
           {testing ? '正在解析目标…' : '测试目标'}
         </button>
         <span className={styles.blockConfigHint}>
-          只读解析当前屏幕，不会点击、不会提升窗口
+          测试时会先隐藏本窗口再截屏解析，不会点击、不会提升其它窗口
         </span>
       </div>
 

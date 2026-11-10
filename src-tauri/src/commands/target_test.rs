@@ -40,6 +40,9 @@ pub struct ImageTargetTest {
     pub threshold: f64,
     pub center: Option<TargetPoint>,
     pub hit_rect: Option<TargetRect>,
+    /// Actual search area in screen coordinates (ROI after clamping), so the
+    /// panel can explain "not found" instead of leaving the user guessing.
+    pub searched_region: Option<TargetRect>,
     pub elapsed_ms: u64,
     pub target: String,
     pub error: Option<String>,
@@ -57,8 +60,13 @@ pub struct UiaTargetTest {
 }
 
 /// Resolve an image target on the current virtual desktop.
+///
+/// The capture + NCC scan takes ~1s, so it must not run on the main thread:
+/// a sync command would freeze the whole window while the user is looking at
+/// the "testing" spinner. The heavy part is pushed to a blocking worker.
 #[tauri::command]
-pub fn test_image_target(
+pub async fn test_image_target(
+    app: tauri::AppHandle,
     image_library_state: State<'_, ImageLibraryState>,
     image_id: String,
     threshold: Option<f64>,
@@ -82,9 +90,26 @@ pub fn test_image_target(
         (path, metadata.name)
     };
 
+    tauri::async_runtime::spawn_blocking(move || {
+        probe_image_target(&app, &path, name, threshold, roi)
+    })
+    .await
+    .map_err(|e| AppError::InternalError(format!("target probe task failed: {e}")))?
+}
+
+fn probe_image_target(
+    app: &tauri::AppHandle,
+    path: &std::path::Path,
+    name: String,
+    threshold: Option<f64>,
+    roi: Option<crate::models::Region>,
+) -> Result<ImageTargetTest> {
     let threshold = threshold.unwrap_or(0.7).clamp(0.0, 1.0);
-    let capture = ScreenCapture::capture_virtual_desktop()?;
-    let template = image::open(&path)?;
+    // 本窗口自己也在屏幕上；不藏起来的话，被它挡住的靶点永远测不到。
+    let capture = crate::commands::screen_capture::capture_without_app(app, || {
+        ScreenCapture::capture_virtual_desktop()
+    })?;
+    let template = image::open(path)?;
 
     let region = roi.and_then(|roi| {
         let x = (roi.x - capture.origin_x).max(0) as u32;
@@ -129,12 +154,20 @@ pub fn test_image_target(
         }
     });
 
+    let searched_region = region.map(|region| TargetRect {
+        x: region.x as i32 + capture.origin_x,
+        y: region.y as i32 + capture.origin_y,
+        width: region.width,
+        height: region.height,
+    });
+
     Ok(ImageTargetTest {
         found: result.found,
         score: result.confidence,
         threshold,
         center,
         hit_rect,
+        searched_region,
         elapsed_ms,
         target: name,
         error: None,
@@ -142,8 +175,26 @@ pub fn test_image_target(
 }
 
 /// Resolve a Windows UIA control without raising or clicking it.
+///
+/// Walking a big window's UIA tree can take seconds; keep it off the main
+/// thread so the panel stays responsive.
 #[tauri::command]
-pub fn test_uia_target(
+pub async fn test_uia_target(
+    window: String,
+    name: Option<String>,
+    automation_id: Option<String>,
+    class_name: Option<String>,
+    control_type: Option<String>,
+    index: Option<usize>,
+) -> Result<UiaTargetTest> {
+    tauri::async_runtime::spawn_blocking(move || {
+        probe_uia_target(window, name, automation_id, class_name, control_type, index)
+    })
+    .await
+    .map_err(|e| AppError::InternalError(format!("uia probe task failed: {e}")))?
+}
+
+fn probe_uia_target(
     window: String,
     name: Option<String>,
     automation_id: Option<String>,
