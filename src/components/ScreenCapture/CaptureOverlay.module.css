@@ -42,6 +42,20 @@
   white-space: nowrap;
 }
 
+/* 跟随选区的实时尺寸/屏幕坐标，避免保存后才发现 ROI 不对 */
+.badge {
+  position: absolute;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(37, 99, 235, 0.92);
+  color: #fff;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .status {
   position: fixed;
   top: 50%;

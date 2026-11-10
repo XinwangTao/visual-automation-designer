@@ -117,6 +117,16 @@ export function CaptureOverlay() {
     };
   })();
 
+  /** 冻结图坐标 → 虚拟桌面绝对坐标，和配置面板里的 ROI 一一对应。 */
+  const screenRegion = region && preview
+    ? {
+        x: region.x + preview.originX,
+        y: region.y + preview.originY,
+        width: region.width,
+        height: region.height,
+      }
+    : null;
+
   const handleSave = useCallback(async () => {
     if (!region || saving) return;
     setSaving(true);
@@ -188,10 +198,24 @@ export function CaptureOverlay() {
         />
       )}
       {selection && <div className={styles.selection} style={selectionStyle} />}
+      {selection && screenRegion && (
+        <div
+          className={styles.badge}
+          style={{
+            left: selection.x,
+            top:
+              selection.y + selection.h + 40 > window.innerHeight
+                ? Math.max(0, selection.y - 30)
+                : selection.y + selection.h + 8,
+          }}
+        >
+          {screenRegion.width} × {screenRegion.height} · ({screenRegion.x}, {screenRegion.y})
+        </div>
+      )}
       {preview && (
         <div className={styles.hint} role="status">
           {region
-            ? `${region.width} × ${region.height} px · Enter 保存 · Esc 取消`
+            ? `${region.width} × ${region.height} px · 屏幕 ${screenRegion?.x ?? 0}, ${screenRegion?.y ?? 0} · Enter 保存 · Esc 取消`
             : '拖拽框选区域 · Esc 取消'}
           {error ? ` · ${error}` : ''}
         </div>

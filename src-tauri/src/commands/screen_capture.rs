@@ -30,6 +30,16 @@ pub struct ScreenCaptureState {
     window: Mutex<Option<MainWindowRestore>>,
 }
 
+impl ScreenCaptureState {
+    /// True while the picker owns the desktop (used to keep the window alive).
+    pub fn is_capturing(&self) -> bool {
+        self.session
+            .lock()
+            .map(|session| session.is_some())
+            .unwrap_or(false)
+    }
+}
+
 struct FrozenDesktop {
     image: image::DynamicImage,
     origin_x: i32,
@@ -219,10 +229,17 @@ struct MainWindowRestore {
     size: PhysicalSize<u32>,
     decorations: bool,
     always_on_top: bool,
+    maximized: bool,
+    resizable: bool,
 }
+
+/// How many times the picker geometry is re-applied before giving up.
+const GEOMETRY_ATTEMPTS: usize = 6;
 
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        // A window hidden while minimized comes back minimized, i.e. invisible.
+        let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
@@ -234,13 +251,96 @@ fn restore_main_window(app: &AppHandle, state: &ScreenCaptureState) {
         return;
     };
     if let Some(saved) = saved {
+        let _ = window.unminimize();
         let _ = window.set_always_on_top(saved.always_on_top);
         let _ = window.set_decorations(saved.decorations);
-        let _ = window.set_position(Position::Physical(saved.position));
-        let _ = window.set_size(Size::Physical(saved.size));
+        let _ = window.set_resizable(saved.resizable);
+
+        // A window that was minimized reports (-32000,-32000) and a 0x0 client
+        // area, so those values must never be played back.
+        let usable = saved.size.width >= 200 && saved.size.height >= 200;
+        let on_screen = saved.position.x > -30_000 && saved.position.y > -30_000;
+        if usable && on_screen {
+            let _ = window.set_position(Position::Physical(saved.position));
+            let _ = window.set_size(Size::Physical(saved.size));
+            if saved.maximized {
+                let _ = window.maximize();
+            } else {
+                let _ = window.unmaximize();
+            }
+        } else {
+            let _ = window.unmaximize();
+            let _ = window.set_size(Size::Physical(PhysicalSize::new(1280, 800)));
+            let _ = window.center();
+        }
     }
+    let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
+}
+
+/// Make the main window's *client area* cover exactly the frozen desktop.
+///
+/// Two things reliably break a naive `set_size`:
+/// - a minimized or maximized window silently ignores the resize;
+/// - Windows keeps an invisible 8 px resize frame, so the client area ends up
+///   inset from the screen origin and every picked coordinate drifts.
+///
+/// So the frame is disabled, the client rect is read back, and the outer rect
+/// is corrected until it matches. `false` means the overlay would be wrong and
+/// must not be shown.
+fn fit_main_to_desktop(
+    window: &tauri::WebviewWindow,
+    origin: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+) -> bool {
+    let _ = window.unminimize();
+    let _ = window.unmaximize();
+    let _ = window.set_decorations(false);
+    // Drops WS_THICKFRAME, which is what leaves the invisible frame behind.
+    let _ = window.set_resizable(false);
+    let _ = window.set_always_on_top(true);
+
+    let mut outer_position = origin;
+    let mut outer_size = size;
+    for attempt in 0..GEOMETRY_ATTEMPTS {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_millis(40));
+            let _ = window.unminimize();
+            let _ = window.unmaximize();
+        }
+        let _ = window.set_position(Position::Physical(outer_position));
+        let _ = window.set_size(Size::Physical(outer_size));
+        let _ = window.show();
+        let _ = window.set_focus();
+
+        if window.is_minimized().unwrap_or(false) || window.is_maximized().unwrap_or(false) {
+            continue;
+        }
+
+        let inner_position = match window.inner_position() {
+            Ok(position) => position,
+            Err(_) => continue,
+        };
+        let inner_size = match window.inner_size() {
+            Ok(size) => size,
+            Err(_) => continue,
+        };
+
+        let dx = origin.x - inner_position.x;
+        let dy = origin.y - inner_position.y;
+        let dw = size.width as i64 - inner_size.width as i64;
+        let dh = size.height as i64 - inner_size.height as i64;
+        if dx == 0 && dy == 0 && dw == 0 && dh == 0 {
+            return true;
+        }
+        outer_position = PhysicalPosition::new(outer_position.x + dx, outer_position.y + dy);
+        outer_size = PhysicalSize::new(
+            (outer_size.width as i64 + dw).max(1) as u32,
+            (outer_size.height as i64 + dh).max(1) as u32,
+        );
+    }
+    false
 }
 
 /// Freeze the desktop, remember it, and turn the main window into the picker.
@@ -266,6 +366,8 @@ pub fn open_screen_capture(app: AppHandle, state: State<'_, ScreenCaptureState>)
         size: main.inner_size().unwrap_or(PhysicalSize::new(1280, 800)),
         decorations: main.is_decorated().unwrap_or(true),
         always_on_top: main.is_always_on_top().unwrap_or(false),
+        maximized: main.is_maximized().unwrap_or(false),
+        resizable: main.is_resizable().unwrap_or(true),
     };
 
     // The desktop must be frozen while the app is off screen.
@@ -303,16 +405,19 @@ pub fn open_screen_capture(app: AppHandle, state: State<'_, ScreenCaptureState>)
         *slot = Some(saved);
     }
 
-    let _ = main.unmaximize();
-    let _ = main.set_decorations(false);
-    let _ = main.set_always_on_top(true);
-    let _ = main.set_position(Position::Physical(PhysicalPosition::new(
-        capture.origin_x,
-        capture.origin_y,
-    )));
-    let _ = main.set_size(Size::Physical(PhysicalSize::new(width, height)));
-    let _ = main.show();
-    let _ = main.set_focus();
+    if !fit_main_to_desktop(
+        &main,
+        PhysicalPosition::new(capture.origin_x, capture.origin_y),
+        PhysicalSize::new(width, height),
+    ) {
+        if let Ok(mut session) = state.session.lock() {
+            *session = None;
+        }
+        restore_main_window(&app, &state);
+        return Err(AppError::InternalError(
+            "无法把主窗口铺满整个桌面，已退出屏幕截取".to_string(),
+        ));
+    }
 
     let _ = app.emit("screen-capture-opened", ());
     Ok(())

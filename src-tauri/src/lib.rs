@@ -203,6 +203,21 @@ pub fn run() {
             commands::save_screen_capture,
             commands::cancel_screen_capture,
         ])
+        // 截屏遮罩期间窗口没有标题栏，Alt+F4 会把整个 app 关掉；先取消截屏。
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.state::<commands::ScreenCaptureState>().is_capturing() {
+                    api.prevent_close();
+                    let _ = commands::cancel_screen_capture(
+                        window.app_handle().clone(),
+                        window.state::<commands::ScreenCaptureState>(),
+                    );
+                }
+            }
+        })
         .run(tauri::generate_context!());
 
     if let Err(error) = app {
