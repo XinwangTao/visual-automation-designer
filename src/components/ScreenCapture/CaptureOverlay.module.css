@@ -182,3 +182,23 @@
 .boxLabelRoi {
   border-color: rgba(255, 77, 79, 0.75);
 }
+
+/* 缩放手柄：四角 + 四边 */
+.editHandle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: #0b1220;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.editHandleImage {
+  border: 1.5px solid #6cb2ff;
+}
+
+.editHandleRoi {
+  border: 1.5px solid #ff4d4f;
+  background: #2a0b0c;
+}

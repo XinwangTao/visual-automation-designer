@@ -478,7 +478,7 @@ export function ImageLibraryDrawer({
                       <div className={styles.screenView} data-testid="image-screen-view">
                         <img
                           className={styles.screenImg}
-                          src={`data:image/png;base64,${screenShot.data}`}
+                          src={`data:${screenShot.mime ?? 'image/png'};base64,${screenShot.data}`}
                           alt="当前屏幕"
                           draggable={false}
                         />

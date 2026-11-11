@@ -20,11 +20,66 @@ import { getEditTarget, setEditTarget } from '../../tauri/captureIntent';
 import { toError } from '../../utils/error';
 import styles from './CaptureOverlay.module.css';
 
+type Handle = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
+
+/** 命中某个框的 8 个手柄之一（留 10px 容差）。 */
+function hitHandle(box: Selection, x: number, y: number): Handle | null {
+  const TOL = 10;
+  if (x < box.x - TOL || x > box.x + box.w + TOL || y < box.y - TOL || y > box.y + box.h + TOL) {
+    return null;
+  }
+  const nearL = Math.abs(x - box.x) <= TOL;
+  const nearR = Math.abs(x - (box.x + box.w)) <= TOL;
+  const nearT = Math.abs(y - box.y) <= TOL;
+  const nearB = Math.abs(y - (box.y + box.h)) <= TOL;
+  const vertical = nearT ? 'n' : nearB ? 's' : '';
+  const horizontal = nearL ? 'w' : nearR ? 'e' : '';
+  if (vertical && horizontal) return `${vertical}${horizontal}` as Handle;
+  if (vertical) return vertical as Handle;
+  if (horizontal) return horizontal as Handle;
+  return null;
+}
+
+/** 按手柄方向拉伸，对边固定；最小 12px。 */
+function resizeBox(
+  origin: Selection,
+  handle: Handle,
+  dx: number,
+  dy: number,
+  bounds: { w: number; h: number },
+): Selection {
+  let left = origin.x;
+  let top = origin.y;
+  let right = origin.x + origin.w;
+  let bottom = origin.y + origin.h;
+  const MIN = 12;
+  if (handle.includes('w')) left = Math.max(0, Math.min(origin.x + dx, right - MIN));
+  if (handle.includes('e')) right = Math.min(bounds.w, Math.max(origin.x + origin.w + dx, left + MIN));
+  if (handle.includes('n')) top = Math.max(0, Math.min(origin.y + dy, bottom - MIN));
+  if (handle.includes('s')) bottom = Math.min(bounds.h, Math.max(origin.y + origin.h + dy, top + MIN));
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
 interface Selection {
   x: number;
   y: number;
   w: number;
   h: number;
+}
+
+/** 手柄在框内的绝对位置（百分比定位，随框缩放）。 */
+function handleStyle(handle: Handle): React.CSSProperties {
+  const pos: Record<Handle, React.CSSProperties> = {
+    nw: { left: 0, top: 0 },
+    n: { left: '50%', top: 0 },
+    ne: { left: '100%', top: 0 },
+    e: { left: '100%', top: '50%' },
+    se: { left: '100%', top: '100%' },
+    s: { left: '50%', top: '100%' },
+    sw: { left: 0, top: '100%' },
+    w: { left: 0, top: '50%' },
+  };
+  return { ...pos[handle], transform: 'translate(-50%, -50%)' };
 }
 
 function defaultName(): string {
@@ -48,6 +103,7 @@ export function CaptureOverlay() {
   const [editBoxes, setEditBoxes] = useState<{ image: Selection; roi: Selection } | null>(null);
   const dragBoxRef = useRef<{
     kind: 'image' | 'roi';
+    handle: Handle | null;
     startX: number;
     startY: number;
     origin: Selection;
@@ -60,6 +116,8 @@ export function CaptureOverlay() {
     let cancelled = false;
     // 按屏幕物理像素请求，避免 4K 屏上整屏放大发糊。窗口刚被拉成全屏时
     // innerWidth 可能还是旧值，所以同时参考 screen 尺寸。
+    // 1:1 截图 + JPEG 编码：后端缩放（resize_exact）反而比编码更贵，
+    // 显示缩放交给浏览器做。坐标按 preview.width 与渲染宽度换算，不受影响。
     const dpr = window.devicePixelRatio || 1;
     const maxWidth = Math.min(
       7680,
@@ -95,11 +153,23 @@ export function CaptureOverlay() {
         // 编辑模式：落在哪个框里就拖哪个，ROI 在上层优先命中。
         const inside = (box: Selection) =>
           point.x >= box.x && point.x <= box.x + box.w && point.y >= box.y && point.y <= box.y + box.h;
+
+        // 手柄优先（ROI 在上层），其次是框内拖动。
+        for (const kind of ['roi', 'image'] as const) {
+          const box = editBoxes[kind];
+          const handle = hitHandle(box, point.x, point.y);
+          if (handle) {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            dragBoxRef.current = { kind, handle, startX: point.x, startY: point.y, origin: { ...box } };
+            return;
+          }
+        }
         const kind = inside(editBoxes.roi) ? 'roi' : inside(editBoxes.image) ? 'image' : null;
         if (!kind) return;
         event.currentTarget.setPointerCapture(event.pointerId);
         dragBoxRef.current = {
           kind,
+          handle: null,
           startX: point.x,
           startY: point.y,
           origin: { ...editBoxes[kind] },
@@ -122,18 +192,22 @@ export function CaptureOverlay() {
       const boxDrag = dragBoxRef.current;
       if (boxDrag) {
         const { rect } = point;
-        const origin = boxDrag.origin;
-        const nx = Math.min(
-          Math.max(0, origin.x + (point.x - boxDrag.startX)),
-          Math.max(0, rect.width - origin.w),
-        );
-        const ny = Math.min(
-          Math.max(0, origin.y + (point.y - boxDrag.startY)),
-          Math.max(0, rect.height - origin.h),
-        );
-        setEditBoxes((prev) =>
-          prev ? { ...prev, [boxDrag.kind]: { ...origin, x: nx, y: ny } } : prev,
-        );
+        const dx = point.x - boxDrag.startX;
+        const dy = point.y - boxDrag.startY;
+        const next = boxDrag.handle
+          ? resizeBox(boxDrag.origin, boxDrag.handle, dx, dy, { w: rect.width, h: rect.height })
+          : {
+              ...boxDrag.origin,
+              x: Math.min(
+                Math.max(0, boxDrag.origin.x + dx),
+                Math.max(0, rect.width - boxDrag.origin.w),
+              ),
+              y: Math.min(
+                Math.max(0, boxDrag.origin.y + dy),
+                Math.max(0, rect.height - boxDrag.origin.h),
+              ),
+            };
+        setEditBoxes((prev) => (prev ? { ...prev, [boxDrag.kind]: next } : prev));
         return;
       }
 
@@ -301,7 +375,7 @@ export function CaptureOverlay() {
         <img
           ref={imgRef}
           className={styles.image}
-          src={`data:image/png;base64,${preview.data}`}
+          src={`data:${preview.mime ?? 'image/png'};base64,${preview.data}`}
           alt="桌面截图"
           draggable={false}
           onLoad={() => {
@@ -371,6 +445,14 @@ export function CaptureOverlay() {
             data-testid="edit-image-box"
           >
             <span className={styles.boxLabel}>图片</span>
+            {(['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as Handle[]).map((handle) => (
+              <span
+                key={handle}
+                className={`${styles.editHandle} ${styles.editHandleImage}`}
+                data-handle={handle}
+                style={handleStyle(handle)}
+              />
+            ))}
           </div>
           <div
             className={styles.roiBox}
@@ -383,6 +465,14 @@ export function CaptureOverlay() {
             data-testid="edit-roi-box"
           >
             <span className={`${styles.boxLabel} ${styles.boxLabelRoi}`}>ROI</span>
+            {(['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as Handle[]).map((handle) => (
+              <span
+                key={handle}
+                className={`${styles.editHandle} ${styles.editHandleRoi}`}
+                data-handle={handle}
+                style={handleStyle(handle)}
+              />
+            ))}
           </div>
         </>
       )}
