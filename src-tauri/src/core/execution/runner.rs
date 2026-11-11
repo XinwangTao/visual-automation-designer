@@ -5,7 +5,7 @@
 //!
 //! Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 8.1, 8.5, 8.4
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::panic::{self, AssertUnwindSafe};
 use std::pin::Pin;
@@ -481,25 +481,33 @@ impl Executor {
 
     /// Execute the entire flow
     async fn execute_flow(&mut self) -> Result<()> {
-        // Get entry block
-        let entry_block = match &self.flow.entry_block {
-            Some(entry) => entry.clone(),
+        // 没有起点就不要「随机挑一个块」执行：HashMap 的迭代顺序是不确定的，
+        // 用户看到的是「点了执行、什么都没发生、还显示完成」。
+        let entry_block = match self.flow.entry_block.clone() {
+            Some(entry) => entry,
             None => {
-                // No entry block defined, try to find a starting block
-                // Use the first block if no entry point is defined
-                let first_block = self.flow.blocks.keys().next().cloned();
-                match first_block {
-                    Some(block_id) => block_id,
-                    None => {
-                        // Empty flow, complete immediately
-                        let mut status = self.status.lock().await;
-                        *status = ExecutionStatus::Completed;
-                        self.emit_event(ExecutionEvent::flow_completed()).await?;
-                        return Ok(());
-                    }
+                if self.flow.blocks.is_empty() {
+                    let mut status = self.status.lock().await;
+                    *status = ExecutionStatus::Completed;
+                    self.emit_event(ExecutionEvent::flow_completed()).await?;
+                    return Ok(());
                 }
+                return Err(AppError::ExecutionFailed(
+                    "流程没有起点：请在画布上右键一个积木块选择「设为起点」，并把积木块连起来"
+                        .to_string(),
+                ));
             }
         };
+
+        // 有积木块没连到起点就直接报错：以前只跑起点那一块，界面上却显示
+        // 「流程完成」，用户看到的是「点了执行、没有点击、也没有输入」。
+        if let Some(names) = self.unreachable_blocks(&entry_block) {
+            return Err(AppError::ExecutionFailed(format!(
+                "有 {} 个积木块没有连到起点，不会被执行：{}。请把它们连起来，或删除。",
+                names.len(),
+                names.join("、")
+            )));
+        }
 
         // Execute starting from entry block
         let result = self.execute_from_block(&entry_block).await;
@@ -767,5 +775,45 @@ mod tests {
         assert!(ctx.current_block().is_none());
         assert!(ctx.execution_log().is_empty());
         assert_eq!(ctx.blocks_executed(), 0);
+    }
+}
+
+impl Executor {
+    /// 从起点沿连线（含控制块的子节点）可达的块集合之外，是否还有积木块。
+    fn unreachable_blocks(&self, entry: &BlockId) -> Option<Vec<String>> {
+        let mut reachable: HashSet<BlockId> = HashSet::new();
+        let mut stack = vec![entry.clone()];
+        while let Some(current) = stack.pop() {
+            if !reachable.insert(current.clone()) {
+                continue;
+            }
+            for connection in &self.flow.connections {
+                if connection.source == current && !reachable.contains(&connection.target) {
+                    stack.push(connection.target.clone());
+                }
+            }
+            if let Some(block) = self.flow.blocks.get(&current) {
+                for child in &block.children {
+                    if !reachable.contains(child) {
+                        stack.push(child.clone());
+                    }
+                }
+            }
+        }
+
+        let names: Vec<String> = self
+            .flow
+            .blocks
+            .iter()
+            .filter(|(id, _)| !reachable.contains(*id))
+            .map(|(_, block)| {
+                let kind = match &block.block_type {
+                    crate::models::BlockType::Action { action } => format!("{action:?}"),
+                    crate::models::BlockType::Control { control } => format!("{control:?}"),
+                };
+                format!("{kind}#{}", &block.id.to_string()[..8])
+            })
+            .collect();
+        if names.is_empty() { None } else { Some(names) }
     }
 }

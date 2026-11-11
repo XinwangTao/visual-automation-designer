@@ -659,6 +659,7 @@ export function WaitTimeConfigUI({ config, onChange }: ConfigUIProps) {
 export function InputTextConfigUI({ config, onChange }: ConfigUIProps) {
   const text = (config.text as string) || '';
   const intervalMs = (config.intervalMs as number) ?? 50;
+  const targetWindow = (config.window as string) || '';
 
   return (
     <div className={styles.blockConfigSection} data-testid="input-text-config">
@@ -674,6 +675,21 @@ export function InputTextConfigUI({ config, onChange }: ConfigUIProps) {
           data-testid="input-text"
           aria-required="true"
         />
+      </div>
+      <div className={styles.blockConfigField}>
+        <label className={styles.blockConfigLabel} htmlFor="inputtext-window">目标窗口（可选）</label>
+        <input
+          id="inputtext-window"
+          type="text"
+          className={styles.blockConfigInput}
+          value={targetWindow}
+          onChange={(e) => onChange({ ...config, window: e.target.value || undefined })}
+          placeholder="例如：记事本"
+          data-testid="input-text-window"
+        />
+        <span className={styles.blockConfigHint}>
+          填了就先把这个窗口提到前台再输入；不填只能打到「碰巧在前台」的窗口上
+        </span>
       </div>
       <div className={styles.blockConfigField}>
         <label className={styles.blockConfigLabel} htmlFor="inputtext-interval">输入间隔 (毫秒)</label>

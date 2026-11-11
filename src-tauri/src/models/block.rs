@@ -202,6 +202,10 @@ pub enum BlockConfig {
         /// Interval between keystrokes in milliseconds (optional)
         #[serde(alias = "interval_ms")]
         interval_ms: Option<u64>,
+        /// 目标窗口标题（包含即可）。设了就先把它提到前台再输入，否则只能
+        /// 打到「碰巧在前台」的窗口上。
+        #[serde(default)]
+        window: Option<String>,
     },
     /// Loop block configuration
     Loop {

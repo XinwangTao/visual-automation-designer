@@ -167,8 +167,8 @@ impl Executor {
             BlockConfig::WaitTime { duration_ms } => {
                 self.execute_wait_time_block(*duration_ms).await
             }
-            BlockConfig::InputText { text, interval_ms } => {
-                self.execute_input_text_block(text, *interval_ms).await
+            BlockConfig::InputText { text, interval_ms, window } => {
+                self.execute_input_text_block(text, *interval_ms, window.as_deref()).await
             }
             BlockConfig::TextExtract { image_id, language } => {
                 self.execute_text_extract_block(image_id.as_ref(), language.as_deref()).await
