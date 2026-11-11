@@ -12,6 +12,7 @@ import {
   getScreenCapturePreview,
   replaceImageFromScreen,
   saveScreenCapture,
+  setImageRoi,
   showScreenCaptureWindow,
   type ScreenPreview,
 } from '../../tauri/commands';
@@ -43,6 +44,14 @@ export function CaptureOverlay() {
   const [saving, setSaving] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ startX: number; startY: number; dragging: boolean } | null>(null);
+  /** 编辑模式：图片框与 ROI 框各自独立，拖动谁就动谁。 */
+  const [editBoxes, setEditBoxes] = useState<{ image: Selection; roi: Selection } | null>(null);
+  const dragBoxRef = useRef<{
+    kind: 'image' | 'roi';
+    startX: number;
+    startY: number;
+    origin: Selection;
+  } | null>(null);
 
   const editTarget = useRef(getEditTarget());
   const isEdit = editTarget.current !== null;
@@ -81,17 +90,53 @@ export function CaptureOverlay() {
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (saving || !preview) return;
       const point = pointFromEvent(event);
+
+      if (editBoxes) {
+        // 编辑模式：落在哪个框里就拖哪个，ROI 在上层优先命中。
+        const inside = (box: Selection) =>
+          point.x >= box.x && point.x <= box.x + box.w && point.y >= box.y && point.y <= box.y + box.h;
+        const kind = inside(editBoxes.roi) ? 'roi' : inside(editBoxes.image) ? 'image' : null;
+        if (!kind) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        dragBoxRef.current = {
+          kind,
+          startX: point.x,
+          startY: point.y,
+          origin: { ...editBoxes[kind] },
+        };
+        return;
+      }
+
       event.currentTarget.setPointerCapture(event.pointerId);
       dragRef.current = { startX: point.x, startY: point.y, dragging: true };
       setSelection({ x: point.x, y: point.y, w: 0, h: 0 });
     },
-    [pointFromEvent, preview, saving],
+    [editBoxes, pointFromEvent, preview, saving],
   );
 
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const point = pointFromEvent(event);
       setPointer({ x: point.x, y: point.y });
+
+      const boxDrag = dragBoxRef.current;
+      if (boxDrag) {
+        const { rect } = point;
+        const origin = boxDrag.origin;
+        const nx = Math.min(
+          Math.max(0, origin.x + (point.x - boxDrag.startX)),
+          Math.max(0, rect.width - origin.w),
+        );
+        const ny = Math.min(
+          Math.max(0, origin.y + (point.y - boxDrag.startY)),
+          Math.max(0, rect.height - origin.h),
+        );
+        setEditBoxes((prev) =>
+          prev ? { ...prev, [boxDrag.kind]: { ...origin, x: nx, y: ny } } : prev,
+        );
+        return;
+      }
+
       const drag = dragRef.current;
       if (!drag?.dragging) return;
       setSelection({
@@ -105,6 +150,7 @@ export function CaptureOverlay() {
   );
 
   const handlePointerUp = useCallback(() => {
+    dragBoxRef.current = null;
     if (dragRef.current) dragRef.current.dragging = false;
     setSelection((current) =>
       current && current.w >= 6 && current.h >= 6 ? current : null,
@@ -148,23 +194,62 @@ export function CaptureOverlay() {
     : null;
 
   const handleSave = useCallback(async () => {
-    if (!region || saving) return;
+    if (saving) return;
+    const target = editTarget.current;
+
+    if (target) {
+      // 编辑模式：两个框各自的屏幕坐标。图片框动过就重裁内容，
+      // 只动 ROI 就只更新搜索区域。
+      if (!editBoxes || !imgRef.current || !preview) return;
+      const rect = imgRef.current.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      const scaleX = preview.width / rect.width;
+      const scaleY = preview.height / rect.height;
+      const toScreen = (box: Selection) => ({
+        x: Math.round(box.x * scaleX) + preview.originX,
+        y: Math.round(box.y * scaleY) + preview.originY,
+        width: Math.max(1, Math.round(box.w * scaleX)),
+        height: Math.max(1, Math.round(box.h * scaleY)),
+      });
+      const imageRect = toScreen(editBoxes.image);
+      const roiRect = toScreen(editBoxes.roi);
+      const originSource = target.source ?? target.roi;
+      const moved =
+        !originSource ||
+        Math.abs(originSource.x - imageRect.x) > 1 ||
+        Math.abs(originSource.y - imageRect.y) > 1 ||
+        Math.abs(originSource.width - imageRect.width) > 1 ||
+        Math.abs(originSource.height - imageRect.height) > 1;
+
+      setSaving(true);
+      setError(null);
+      try {
+        if (moved) {
+          await replaceImageFromScreen({ id: target.id, ...imageRect, roi: roiRect });
+        } else {
+          await setImageRoi(target.id, roiRect);
+          await cancelScreenCapture();
+        }
+        setEditTarget(null);
+      } catch (err) {
+        setError(toError(err).message || '应用调整失败');
+        setSaving(false);
+      }
+      return;
+    }
+
+    if (!region) return;
     setSaving(true);
     setError(null);
     try {
-      const target = editTarget.current;
-      if (target) {
-        await replaceImageFromScreen({ id: target.id, ...region });
-      } else {
-        await saveScreenCapture({ name: defaultName(), ...region });
-      }
+      await saveScreenCapture({ name: defaultName(), ...region });
       setEditTarget(null);
       // 后端保存后会关闭本窗口；这里不再 setState。
     } catch (err) {
       setError(toError(err).message || '保存截图失败');
       setSaving(false);
     }
-  }, [region, saving]);
+  }, [editBoxes, preview, region, saving]);
 
   const handleCancel = useCallback(async () => {
     try {
@@ -221,19 +306,25 @@ export function CaptureOverlay() {
           draggable={false}
           onLoad={() => {
             void showScreenCaptureWindow();
-            // 编辑模式：把这张图原来的 ROI 变成初始选区，直接拖动调整。
+            // 编辑模式：把「图片来源框」和「搜索 ROI」各自铺出来，直接拖动。
             const target = editTarget.current;
             const node = imgRef.current;
-            if (target?.roi && node && preview) {
+            if (target && node) {
               const rect = node.getBoundingClientRect();
               if (rect.width > 0 && rect.height > 0) {
-                const scale = rect.width / preview.width;
-                setSelection({
-                  x: (target.roi.x - preview.originX) * scale,
-                  y: (target.roi.y - preview.originY) * scale,
-                  w: target.roi.width * scale,
-                  h: target.roi.height * scale,
+                const scaleX = rect.width / preview.width;
+                const scaleY = rect.height / preview.height;
+                const toBox = (r: { x: number; y: number; width: number; height: number }): Selection => ({
+                  x: (r.x - preview.originX) * scaleX,
+                  y: (r.y - preview.originY) * scaleY,
+                  w: r.width * scaleX,
+                  h: r.height * scaleY,
                 });
+                const source = target.source ?? target.roi;
+                const roi = target.roi ?? target.source;
+                if (source && roi) {
+                  setEditBoxes({ image: toBox(source), roi: toBox(roi) });
+                }
               }
             }
           }}
@@ -256,7 +347,46 @@ export function CaptureOverlay() {
           )}
         </>
       )}
-      {selection && (
+      {isEdit && editBoxes && (
+        <>
+          <div
+            className={styles.imageBox}
+            style={(() => {
+              // 两个框完全重合时，把图片框外扩几像素，否则红框会把蓝框完全盖住。
+              const a = editBoxes.image;
+              const b = editBoxes.roi;
+              const same =
+                Math.abs(a.x - b.x) < 2 &&
+                Math.abs(a.y - b.y) < 2 &&
+                Math.abs(a.w - b.w) < 2 &&
+                Math.abs(a.h - b.h) < 2;
+              const pad = same ? 3 : 0;
+              return {
+                left: a.x - pad,
+                top: a.y - pad,
+                width: a.w + pad * 2,
+                height: a.h + pad * 2,
+              };
+            })()}
+            data-testid="edit-image-box"
+          >
+            <span className={styles.boxLabel}>图片</span>
+          </div>
+          <div
+            className={styles.roiBox}
+            style={{
+              left: editBoxes.roi.x,
+              top: editBoxes.roi.y,
+              width: editBoxes.roi.w,
+              height: editBoxes.roi.h,
+            }}
+            data-testid="edit-roi-box"
+          >
+            <span className={`${styles.boxLabel} ${styles.boxLabelRoi}`}>ROI</span>
+          </div>
+        </>
+      )}
+      {!isEdit && selection && (
         <div className={styles.selection} style={selectionStyle}>
           <span className={`${styles.handle} ${styles.handleNw}`} />
           <span className={`${styles.handle} ${styles.handleNe}`} />
@@ -264,7 +394,7 @@ export function CaptureOverlay() {
           <span className={`${styles.handle} ${styles.handleSe}`} />
         </div>
       )}
-      {selection && screenRegion && (
+      {!isEdit && selection && screenRegion && (
         <div
           className={styles.badge}
           style={{
@@ -280,10 +410,10 @@ export function CaptureOverlay() {
       )}
       {preview && (
         <div className={styles.hint} role="status">
-          {region
-            ? `${region.width} × ${region.height} px · 屏幕 ${screenRegion?.x ?? 0}, ${screenRegion?.y ?? 0} · Enter ${isEdit ? '应用' : '保存'} · Esc 取消`
-            : isEdit
-              ? '拖动或重新框选，调整这张图的区域 · Esc 取消'
+          {isEdit
+            ? '拖动「图片」框改内容位置，拖动红框改搜索 ROI · Enter 应用 · Esc 取消'
+            : region
+              ? `${region.width} × ${region.height} px · 屏幕 ${screenRegion?.x ?? 0}, ${screenRegion?.y ?? 0} · Enter 保存 · Esc 取消`
               : '拖拽框选区域 · Esc 取消'}
           {error ? ` · ${error}` : ''}
         </div>

@@ -316,7 +316,7 @@ export function ImageLibraryDrawer({
     if (!active) return;
     setError(null);
     setPickedFrom(new Set(images.map((image) => image.id)));
-    setEditTarget({ id: active.id, roi: active.roi });
+    setEditTarget({ id: active.id, source: active.source ?? active.roi, roi: active.roi });
     beginRoiPick();
     setPicking(true);
     try {

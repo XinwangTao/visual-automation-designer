@@ -523,6 +523,7 @@ export async function replaceImageFromScreen(params: {
   y: number;
   width: number;
   height: number;
+  roi?: ScreenRect | null;
 }): Promise<CapturedImage> {
   return invoke<CapturedImage>('replace_image_from_screen', params);
 }

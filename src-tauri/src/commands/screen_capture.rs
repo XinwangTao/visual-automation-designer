@@ -660,6 +660,8 @@ pub fn replace_image_from_screen(
     y: i32,
     width: u32,
     height: u32,
+    // 搜索 ROI；传 null 表示沿用这张图原来的 ROI。
+    roi: Option<crate::models::Region>,
 ) -> Result<CapturedImage> {
     if width == 0 || height == 0 {
         return Err(AppError::ValidationError(
@@ -723,7 +725,7 @@ pub fn replace_image_from_screen(
             width,
             height,
         };
-        let metadata = manager.replace_image_content(&image_id, &bytes, Some(region))?;
+        let metadata = manager.replace_image_content(&image_id, &bytes, Some(region), roi)?;
         drop(manager);
 
         Ok(CapturedImage {

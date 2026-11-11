@@ -143,3 +143,42 @@
   color: #e5e7eb;
   font-size: 14px;
 }
+
+/* 编辑模式的两个可拖动框：蓝=图片内容，红=搜索 ROI */
+.imageBox {
+  position: absolute;
+  border: 2px dashed #6cb2ff;
+  border-radius: 4px;
+  background: rgba(76, 154, 255, 0.08);
+  cursor: move;
+  pointer-events: none;
+}
+
+.roiBox {
+  position: absolute;
+  border: 2px solid #ff4d4f;
+  border-radius: 4px;
+  background: rgba(255, 77, 79, 0.1);
+  box-shadow: 0 0 14px rgba(255, 77, 79, 0.35);
+  cursor: move;
+  pointer-events: none;
+}
+
+.boxLabel {
+  position: absolute;
+  top: -22px;
+  left: -2px;
+  padding: 1px 7px;
+  border-radius: 6px 6px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #eaf2ff;
+  background: rgba(10, 16, 28, 0.85);
+  border: 1px solid rgba(108, 178, 255, 0.6);
+  border-bottom: none;
+  white-space: nowrap;
+}
+
+.boxLabelRoi {
+  border-color: rgba(255, 77, 79, 0.75);
+}

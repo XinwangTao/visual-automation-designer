@@ -486,6 +486,7 @@ impl ImageLibraryManager {
         &self,
         id: &ImageId,
         bytes: &[u8],
+        source: Option<crate::models::block::Region>,
         roi: Option<crate::models::block::Region>,
     ) -> Result<ImageMetadata> {
         self.refresh_from_disk();
@@ -507,7 +508,10 @@ impl ImageLibraryManager {
             entry.width = width;
             entry.height = height;
             entry.hash = hash;
-            entry.set_roi(roi);
+            entry.set_source(source);
+            if roi.is_some() {
+                entry.set_roi(roi);
+            }
             (entry.file_path.clone(), entry.clone())
         };
 

@@ -23,6 +23,9 @@ export function isRoiPick(): boolean {
 
 export interface CaptureEditTarget {
   id: string;
+  /** 图片内容的来源框（拖动它 = 重裁图片） */
+  source?: { x: number; y: number; width: number; height: number };
+  /** 搜索 ROI（红框，拖动它只改搜索区域） */
   roi?: { x: number; y: number; width: number; height: number };
 }
 

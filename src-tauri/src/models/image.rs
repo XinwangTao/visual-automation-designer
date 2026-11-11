@@ -94,6 +94,10 @@ pub struct ImageMetadata {
     /// 图片库里的可视化编辑；老数据没有这个字段，反序列化为 None。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub roi: Option<crate::models::block::Region>,
+    /// 图片内容是从屏幕上哪块区域裁出来的。和 `roi`（搜索区域）分开存：
+    /// 用户可以在屏幕上分别拖动这两个框。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<crate::models::block::Region>,
 }
 
 impl ImageMetadata {
@@ -116,6 +120,7 @@ impl ImageMetadata {
             created_at: Utc::now(),
             hash,
             roi: None,
+            source: None,
         }
     }
 
@@ -140,7 +145,13 @@ impl ImageMetadata {
             created_at,
             hash,
             roi: None,
+            source: None,
         }
+    }
+
+    /// 记录/清除图片内容的来源区域（重裁时更新）。
+    pub fn set_source(&mut self, source: Option<crate::models::block::Region>) {
+        self.source = source;
     }
 
     /// Attach (or clear) the screen region this image was captured from.
