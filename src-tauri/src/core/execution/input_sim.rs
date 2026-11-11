@@ -225,9 +225,24 @@ impl Executor {
         &mut self,
         text: &str,
         interval_ms: Option<u64>,
+        window: Option<&str>,
     ) -> Result<BlockResult> {
         if self.dry_run {
             return Ok(BlockResult::Continue);
+        }
+        // 指定了目标窗口就先把它提到前台：运行时主窗口是最小化的，不指定
+        // 目标就只能打到「碰巧在前台」的那个窗口上。
+        if let Some(title) = window.map(str::trim).filter(|t| !t.is_empty()) {
+            #[cfg(windows)]
+            {
+                crate::platform::uia::raise_window(title).map_err(AppError::ExecutionFailed)?;
+                // 给窗口一点时间真正拿到焦点
+                std::thread::sleep(std::time::Duration::from_millis(120));
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = title;
+            }
         }
         let interval = interval_ms.unwrap_or(10);
 

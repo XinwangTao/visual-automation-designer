@@ -412,6 +412,7 @@ fn test_complete_workflow() {
         BlockConfig::InputText {
             text: "Hello World".to_string(),
             interval_ms: Some(10),
+            window: None,
         },
     );
     let input_id = input_block.id.clone();
@@ -478,6 +479,7 @@ fn test_block_config_serialization() {
         BlockConfig::InputText {
             text: "Test input".to_string(),
             interval_ms: Some(50),
+            window: None,
         },
         BlockConfig::Loop {
             count: 10,

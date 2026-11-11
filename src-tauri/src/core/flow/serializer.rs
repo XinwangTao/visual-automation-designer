@@ -442,6 +442,7 @@ mod tests {
             BlockConfig::InputText {
                 text: "Hello, World!".to_string(),
                 interval_ms: Some(50),
+                window: None,
             },
         );
         let loop_block = BlockNode::new(

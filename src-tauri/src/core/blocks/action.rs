@@ -304,6 +304,7 @@ impl Block for InputTextBlock {
         let config = BlockConfig::InputText {
             text: self.text.clone(),
             interval_ms: self.interval_ms,
+            window: None,
         };
         validate_config(&config)
     }

@@ -25,6 +25,7 @@ import type { InternalExecutionEvent } from './hooks/useExecution';
 import type { Flow as TauriFlow, ValidationErrorResponse } from './tauri/flow';
 import { validateFlow } from './tauri/flow';
 import { dryRunFlow } from './tauri/execution';
+import { toError } from './utils/error';
 import { listImages, onScreenCaptureClosed, onScreenCaptureOpened, onScreenCaptureSaved } from './tauri/commands';
 import { ImageLibraryDrawer } from './components/ImageLibrary/ImageLibraryDrawer';
 import { formatValidationResponse } from './validation/formatValidationMessage';
@@ -349,13 +350,17 @@ export function AppShell() {
       const nodeId = await addNode(type, category, position, undefined, flowId);
       setSelectedNodeId(nodeId);
       setRecentNodeId(nodeId);
+      // 第一个积木块自动成为起点（同时更新本地状态与后端，否则保存时会被写回空）
+      if (!flow?.entryBlock) {
+        await setEntryBlock(nodeId).catch(() => undefined);
+      }
       return nodeId;
     } catch (err) {
       console.error('Failed to add node:', err);
       showToast('warning', err instanceof Error ? err.message : '添加节点失败');
       return null;
     }
-  }, [addNode, ensureFlowForEditing, showToast]);
+  }, [addNode, ensureFlowForEditing, flow?.entryBlock, setEntryBlock, showToast]);
 
   const handleToolboxSelect = useCallback((type: string, category: string) => {
     const addNodeFromToolbox = async () => {
@@ -539,6 +544,11 @@ export function AppShell() {
 
   const handleExecute = useCallback(async () => {
     if (!flow) { showToast('warning', '请先创建或加载流程'); return; }
+    // 没有起点就别让用户以为「跑了但没效果」：执行器会从一个不确定的块开始。
+    if (!flow.entryBlock) {
+      showToast('error', '流程没有起点：右键一个积木块 → 设为起点');
+      return;
+    }
     try {
       if (isDirty) await saveFlow();
       await validateBeforeExecution();
@@ -547,7 +557,7 @@ export function AppShell() {
       showToast('info', '开始执行流程');
     } catch (err) {
       console.error('Failed to execute flow:', err);
-      showToast('error', '执行失败');
+      showToast('error', toError(err).message || '执行失败');
     }
   }, [flow, isDirty, resetProgress, saveFlow, tauriExecuteFlow, showToast, validateBeforeExecution]);
 

@@ -11,6 +11,7 @@ import {
   createBlock as tauriCreateBlock,
   updateBlockPosition as tauriUpdateBlockPosition,
   updateBlockConfig as tauriUpdateBlockConfig,
+  setEntryBlock as tauriSetEntryBlock,
   deleteBlock as tauriDeleteBlock,
   type BlockConfig,
   type BlockPosition,
@@ -73,6 +74,7 @@ export function useFlowNodes(params: UseFlowNodesParams): UseFlowNodesReturn {
         const blockPosition: BlockPosition = { x: position.x, y: position.y };
         const block = await tauriCreateBlock(activeFlowId, blockType, blockConfig, blockPosition);
 
+
         const newNode = blockNodeToReactFlowNode(block, !flow?.entryBlock);
         setNodes((nds) =>
           synchronizeNodeSemantics([...nds, newNode], edgesRef.current, flow?.entryBlock ?? block.id)
@@ -115,6 +117,10 @@ export function useFlowNodes(params: UseFlowNodesParams): UseFlowNodesReturn {
 
       try {
         await tauriDeleteBlock(flow.id, nodeId);
+        // 删掉的正好是起点：把后端的起点也清空，别留一个指向已删除块的引用。
+        if (flow.entryBlock === nodeId) {
+          await tauriSetEntryBlock(flow.id, null).catch(() => undefined);
+        }
         await refreshUndoRedoForFlow(flow.id);
       } catch (err) {
         const error = toError(err);

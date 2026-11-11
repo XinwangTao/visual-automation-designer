@@ -112,7 +112,7 @@ pub fn validate_config(config: &BlockConfig) -> Vec<BlockError> {
                 errors.push(BlockError::new("duration_ms", "Duration must be greater than 0"));
             }
         }
-        BlockConfig::InputText { text, interval_ms } => {
+        BlockConfig::InputText { text, interval_ms, .. } => {
             if text.is_empty() {
                 errors.push(BlockError::new("text", "Text cannot be empty"));
             }
@@ -216,6 +216,7 @@ mod tests {
         let config = BlockConfig::InputText {
             text: "Hello".to_string(),
             interval_ms: Some(50),
+            window: None,
         };
         let errors = validate_config(&config);
         assert!(errors.is_empty());
@@ -226,6 +227,7 @@ mod tests {
         let config = BlockConfig::InputText {
             text: "".to_string(),
             interval_ms: None,
+            window: None,
         };
         let errors = validate_config(&config);
         assert_eq!(errors.len(), 1);

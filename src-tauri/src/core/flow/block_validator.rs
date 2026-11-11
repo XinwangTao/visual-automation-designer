@@ -389,6 +389,7 @@ mod tests {
         let config = BlockConfig::InputText {
             text: String::new(),
             interval_ms: None,
+            window: None,
         };
         let errors = validate_block_config(&validator, &block_id, &config);
         assert_eq!(errors.len(), 1);
@@ -403,6 +404,7 @@ mod tests {
         let config = BlockConfig::InputText {
             text: "hello".to_string(),
             interval_ms: None,
+            window: None,
         };
         let errors = validate_block_config(&validator, &block_id, &config);
         assert!(errors.is_empty());
