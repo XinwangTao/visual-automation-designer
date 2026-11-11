@@ -49,7 +49,7 @@ base64 = "0.22"
 
 # Windows OCR API (Windows-only, conditionally compiled)
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = [
+windows = { version = "0.62", features = [
     "Media_Ocr",
     "Graphics_Imaging",
     "Foundation",
