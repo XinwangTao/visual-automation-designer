@@ -56,8 +56,9 @@ impl Default for InputController {
 impl InputController {
     /// Create a new input controller
     pub fn new() -> Result<Self> {
-        let enigo = Enigo::new(&Settings::default())
-            .map_err(|e| AppError::ExecutionFailed(format!("Failed to initialize input controller: {:?}", e)))?;
+        let enigo = Enigo::new(&Settings::default()).map_err(|e| {
+            AppError::ExecutionFailed(format!("Failed to initialize input controller: {:?}", e))
+        })?;
 
         Ok(Self {
             enigo,
@@ -86,9 +87,7 @@ impl InputController {
     pub fn move_to(&mut self, x: i32, y: i32) -> Result<()> {
         self.enigo
             .move_mouse(x, y, Coordinate::Abs)
-            .map_err(|e| {
-                AppError::ExecutionFailed(format!("Failed to move mouse: {:?}", e))
-            })?;
+            .map_err(|e| AppError::ExecutionFailed(format!("Failed to move mouse: {:?}", e)))?;
         Ok(())
     }
 
@@ -100,9 +99,7 @@ impl InputController {
     pub fn move_by(&mut self, dx: i32, dy: i32) -> Result<()> {
         self.enigo
             .move_mouse(dx, dy, Coordinate::Rel)
-            .map_err(|e| {
-                AppError::ExecutionFailed(format!("Failed to move mouse: {:?}", e))
-            })?;
+            .map_err(|e| AppError::ExecutionFailed(format!("Failed to move mouse: {:?}", e)))?;
         Ok(())
     }
 
@@ -159,9 +156,11 @@ impl InputController {
     /// # Arguments
     /// * `button` - Mouse button to press
     pub fn mouse_down(&mut self, button: MouseButton) -> Result<()> {
-        self.enigo.button(button.into(), Direction::Press).map_err(|e| {
-            AppError::ExecutionFailed(format!("Failed to press mouse button: {:?}", e))
-        })?;
+        self.enigo
+            .button(button.into(), Direction::Press)
+            .map_err(|e| {
+                AppError::ExecutionFailed(format!("Failed to press mouse button: {:?}", e))
+            })?;
         Ok(())
     }
 
@@ -170,9 +169,11 @@ impl InputController {
     /// # Arguments
     /// * `button` - Mouse button to release
     pub fn mouse_up(&mut self, button: MouseButton) -> Result<()> {
-        self.enigo.button(button.into(), Direction::Release).map_err(|e| {
-            AppError::ExecutionFailed(format!("Failed to release mouse button: {:?}", e))
-        })?;
+        self.enigo
+            .button(button.into(), Direction::Release)
+            .map_err(|e| {
+                AppError::ExecutionFailed(format!("Failed to release mouse button: {:?}", e))
+            })?;
         Ok(())
     }
 
@@ -187,11 +188,11 @@ impl InputController {
         } else {
             Button::ScrollDown
         };
-        
+
         for _ in 0..amount.abs() {
-            self.enigo.button(direction, Direction::Click).map_err(|e| {
-                AppError::ExecutionFailed(format!("Failed to scroll: {:?}", e))
-            })?;
+            self.enigo
+                .button(direction, Direction::Click)
+                .map_err(|e| AppError::ExecutionFailed(format!("Failed to scroll: {:?}", e)))?;
         }
         Ok(())
     }
@@ -276,9 +277,9 @@ impl InputController {
     /// * `key` - Key to press (as string, e.g., "Enter", "Tab", "Escape")
     pub fn key_press(&mut self, key: &str) -> Result<()> {
         let key_code = self.parse_key(key)?;
-        self.enigo.key(key_code, Direction::Click).map_err(|e| {
-            AppError::ExecutionFailed(format!("Failed to press key: {:?}", e))
-        })?;
+        self.enigo
+            .key(key_code, Direction::Click)
+            .map_err(|e| AppError::ExecutionFailed(format!("Failed to press key: {:?}", e)))?;
         Ok(())
     }
 
@@ -288,9 +289,9 @@ impl InputController {
     /// * `key` - Key to press
     pub fn key_down(&mut self, key: &str) -> Result<()> {
         let key_code = self.parse_key(key)?;
-        self.enigo.key(key_code, Direction::Press).map_err(|e| {
-            AppError::ExecutionFailed(format!("Failed to press key down: {:?}", e))
-        })?;
+        self.enigo
+            .key(key_code, Direction::Press)
+            .map_err(|e| AppError::ExecutionFailed(format!("Failed to press key down: {:?}", e)))?;
         Ok(())
     }
 
@@ -300,9 +301,9 @@ impl InputController {
     /// * `key` - Key to release
     pub fn key_up(&mut self, key: &str) -> Result<()> {
         let key_code = self.parse_key(key)?;
-        self.enigo.key(key_code, Direction::Release).map_err(|e| {
-            AppError::ExecutionFailed(format!("Failed to release key: {:?}", e))
-        })?;
+        self.enigo
+            .key(key_code, Direction::Release)
+            .map_err(|e| AppError::ExecutionFailed(format!("Failed to release key: {:?}", e)))?;
         Ok(())
     }
 
@@ -315,9 +316,11 @@ impl InputController {
         // Press modifiers
         for modifier in modifiers {
             let modifier_key = self.modifier_to_key(*modifier);
-            self.enigo.key(modifier_key, Direction::Press).map_err(|e| {
-                AppError::ExecutionFailed(format!("Failed to press modifier: {:?}", e))
-            })?;
+            self.enigo
+                .key(modifier_key, Direction::Press)
+                .map_err(|e| {
+                    AppError::ExecutionFailed(format!("Failed to press modifier: {:?}", e))
+                })?;
         }
 
         thread::sleep(Duration::from_millis(self.key_interval_ms));
@@ -346,16 +349,16 @@ impl InputController {
         for modifier in modifiers {
             let modifier_key = self.modifier_to_key(*modifier);
             if let Err(e) = self.enigo.key(modifier_key, Direction::Release) {
-                release_error = Some(AppError::ExecutionFailed(
-                    format!("Failed to release modifier: {:?}", e)
-                ));
+                release_error = Some(AppError::ExecutionFailed(format!(
+                    "Failed to release modifier: {:?}",
+                    e
+                )));
             }
         }
 
         // Return the first error (main key failure takes priority)
-        main_key_result.map_err(|e| {
-            AppError::ExecutionFailed(format!("Failed to press key: {:?}", e))
-        })?;
+        main_key_result
+            .map_err(|e| AppError::ExecutionFailed(format!("Failed to press key: {:?}", e)))?;
         if let Some(e) = release_error {
             return Err(e);
         }
@@ -365,56 +368,68 @@ impl InputController {
 
     /// Parse a key string to a Key enum
     fn parse_key(&self, key: &str) -> Result<Key> {
-        match key.to_lowercase().as_str() {
-            "enter" | "return" => Ok(Key::Return),
-            "tab" => Ok(Key::Tab),
-            "space" => Ok(Key::Space),
-            "escape" | "esc" => Ok(Key::Escape),
-            "backspace" => Ok(Key::Backspace),
-            "delete" | "del" => Ok(Key::Delete),
-            "insert" => Ok(Key::Unicode('\u{2380}')),
-            "home" => Ok(Key::Home),
-            "end" => Ok(Key::End),
-            "pageup" | "page_up" => Ok(Key::PageUp),
-            "pagedown" | "page_down" => Ok(Key::PageDown),
-            "arrow_up" | "up" => Ok(Key::UpArrow),
-            "arrow_down" | "down" => Ok(Key::DownArrow),
-            "arrow_left" | "left" => Ok(Key::LeftArrow),
-            "arrow_right" | "right" => Ok(Key::RightArrow),
-            "f1" => Ok(Key::F1),
-            "f2" => Ok(Key::F2),
-            "f3" => Ok(Key::F3),
-            "f4" => Ok(Key::F4),
-            "f5" => Ok(Key::F5),
-            "f6" => Ok(Key::F6),
-            "f7" => Ok(Key::F7),
-            "f8" => Ok(Key::F8),
-            "f9" => Ok(Key::F9),
-            "f10" => Ok(Key::F10),
-            "f11" => Ok(Key::F11),
-            "f12" => Ok(Key::F12),
-            s if s.len() == 1 => {
-                let c = s.chars().next().unwrap();
-                if c.is_ascii_alphabetic() {
-                    Ok(Key::Unicode(c))
-                } else if c.is_ascii_digit() {
-                    Ok(Key::Unicode(c))
-                } else {
-                    Ok(Key::Unicode(c))
-                }
-            }
-            _ => Err(AppError::ExecutionFailed(format!("Unknown key: {}", key))),
-        }
+        parse_key_name(key)
     }
 
     /// Convert KeyModifier to Key
     fn modifier_to_key(&self, modifier: KeyModifier) -> Key {
-        match modifier {
-            KeyModifier::Shift => Key::Shift,
-            KeyModifier::Ctrl => Key::Control,
-            KeyModifier::Alt => Key::Alt,
-            KeyModifier::Meta => Key::Meta,
+        key_modifier_to_key(modifier)
+    }
+}
+
+/// 把按键名字解析成 enigo 的 `Key`。
+///
+/// 纯函数：不碰输入后端，因此可以在无显示器环境（CI）里直接单测。
+fn parse_key_name(key: &str) -> Result<Key> {
+    match key.to_lowercase().as_str() {
+        "enter" | "return" => Ok(Key::Return),
+        "tab" => Ok(Key::Tab),
+        "space" => Ok(Key::Space),
+        "escape" | "esc" => Ok(Key::Escape),
+        "backspace" => Ok(Key::Backspace),
+        "delete" | "del" => Ok(Key::Delete),
+        "insert" => Ok(Key::Unicode('\u{2380}')),
+        "home" => Ok(Key::Home),
+        "end" => Ok(Key::End),
+        "pageup" | "page_up" => Ok(Key::PageUp),
+        "pagedown" | "page_down" => Ok(Key::PageDown),
+        "arrow_up" | "up" => Ok(Key::UpArrow),
+        "arrow_down" | "down" => Ok(Key::DownArrow),
+        "arrow_left" | "left" => Ok(Key::LeftArrow),
+        "arrow_right" | "right" => Ok(Key::RightArrow),
+        "f1" => Ok(Key::F1),
+        "f2" => Ok(Key::F2),
+        "f3" => Ok(Key::F3),
+        "f4" => Ok(Key::F4),
+        "f5" => Ok(Key::F5),
+        "f6" => Ok(Key::F6),
+        "f7" => Ok(Key::F7),
+        "f8" => Ok(Key::F8),
+        "f9" => Ok(Key::F9),
+        "f10" => Ok(Key::F10),
+        "f11" => Ok(Key::F11),
+        "f12" => Ok(Key::F12),
+        s if s.len() == 1 => {
+            let c = s.chars().next().unwrap();
+            if c.is_ascii_alphabetic() {
+                Ok(Key::Unicode(c))
+            } else if c.is_ascii_digit() {
+                Ok(Key::Unicode(c))
+            } else {
+                Ok(Key::Unicode(c))
+            }
         }
+        _ => Err(AppError::ExecutionFailed(format!("Unknown key: {}", key))),
+    }
+}
+
+/// 修饰键到 enigo `Key` 的映射，同样是纯函数。
+fn key_modifier_to_key(modifier: KeyModifier) -> Key {
+    match modifier {
+        KeyModifier::Shift => Key::Shift,
+        KeyModifier::Ctrl => Key::Control,
+        KeyModifier::Alt => Key::Alt,
+        KeyModifier::Meta => Key::Meta,
     }
 }
 
@@ -422,31 +437,10 @@ impl InputController {
 mod tests {
     use super::*;
 
-    /// 测试辅助：拿不到输入后端时跳过用例。
-    ///
-    /// enigo 在无显示器 / 无 X 连接（CI 的 xvfb 并发创建连接）时会返回
-    /// `EstablishCon`，这不是被测逻辑的问题。这些用例验证的是按键解析与
-    /// 参数装配，拿不到后端就直接跳过，别让平台层测试在 CI 上偶发翻红。
-    fn create_controller() -> Option<InputController> {
-        match InputController::new() {
-            Ok(controller) => Some(controller),
-            Err(error) => {
-                eprintln!("skip: input backend unavailable: {error}");
-                None
-            }
-        }
-    }
-
-    #[test]
-    fn test_input_controller_creation() {
-        // This test may fail in CI environments without display
-        // but should work on a local machine
-        if let Ok(_controller) = Enigo::new(&Settings::default()) {
-            let Some(controller) = create_controller() else { return; };
-            assert_eq!(controller.click_interval_ms, 10);
-            assert_eq!(controller.key_interval_ms, 1);
-        }
-    }
+    // 说明：`InputController` 一创建就会连 X11 / Win32 输入后端。CI 的 headless
+    // runner 上并发建连接会让 enigo 直接 SIGSEGV（且偶发 EstablishCon），所以
+    // 单测只验证不碰后端的纯逻辑；需要真后端的用例标 #[ignore]，本地跑
+    // `cargo test -- --ignored`。
 
     #[test]
     fn test_mouse_button_conversion() {
@@ -457,59 +451,61 @@ mod tests {
 
     #[test]
     fn test_parse_key() {
-        let Some(controller) = create_controller() else { return; };
-        
-        assert!(matches!(controller.parse_key("Enter"), Ok(Key::Return)));
-        assert!(matches!(controller.parse_key("Tab"), Ok(Key::Tab)));
-        assert!(matches!(controller.parse_key("Space"), Ok(Key::Space)));
-        assert!(matches!(controller.parse_key("Escape"), Ok(Key::Escape)));
-        assert!(matches!(controller.parse_key("a"), Ok(Key::Unicode('a'))));
-        assert!(matches!(controller.parse_key("F1"), Ok(Key::F1)));
+        assert!(matches!(parse_key_name("Enter"), Ok(Key::Return)));
+        assert!(matches!(parse_key_name("Tab"), Ok(Key::Tab)));
+        assert!(matches!(parse_key_name("Space"), Ok(Key::Space)));
+        assert!(matches!(parse_key_name("Escape"), Ok(Key::Escape)));
+        assert!(matches!(parse_key_name("a"), Ok(Key::Unicode('a'))));
+        assert!(matches!(parse_key_name("F1"), Ok(Key::F1)));
     }
 
     #[test]
     fn should_parse_arrow_keys() {
-        let Some(controller) = create_controller() else { return; };
-        assert_eq!(controller.parse_key("up").ok(), Some(Key::UpArrow));
-        assert_eq!(controller.parse_key("down").ok(), Some(Key::DownArrow));
-        assert_eq!(controller.parse_key("left").ok(), Some(Key::LeftArrow));
-        assert_eq!(controller.parse_key("right").ok(), Some(Key::RightArrow));
-        assert_eq!(controller.parse_key("arrow_up").ok(), Some(Key::UpArrow));
-        assert_eq!(controller.parse_key("arrow_down").ok(), Some(Key::DownArrow));
+        assert_eq!(parse_key_name("up").ok(), Some(Key::UpArrow));
+        assert_eq!(parse_key_name("down").ok(), Some(Key::DownArrow));
+        assert_eq!(parse_key_name("left").ok(), Some(Key::LeftArrow));
+        assert_eq!(parse_key_name("right").ok(), Some(Key::RightArrow));
+        assert_eq!(parse_key_name("arrow_up").ok(), Some(Key::UpArrow));
+        assert_eq!(parse_key_name("arrow_down").ok(), Some(Key::DownArrow));
     }
 
     #[test]
     fn should_parse_navigation_keys() {
-        let Some(controller) = create_controller() else { return; };
-        assert_eq!(controller.parse_key("home").ok(), Some(Key::Home));
-        assert_eq!(controller.parse_key("end").ok(), Some(Key::End));
-        assert_eq!(controller.parse_key("pageup").ok(), Some(Key::PageUp));
-        assert_eq!(controller.parse_key("pagedown").ok(), Some(Key::PageDown));
-        assert_eq!(controller.parse_key("page_up").ok(), Some(Key::PageUp));
-        assert_eq!(controller.parse_key("page_down").ok(), Some(Key::PageDown));
+        assert_eq!(parse_key_name("home").ok(), Some(Key::Home));
+        assert_eq!(parse_key_name("end").ok(), Some(Key::End));
+        assert_eq!(parse_key_name("pageup").ok(), Some(Key::PageUp));
+        assert_eq!(parse_key_name("pagedown").ok(), Some(Key::PageDown));
+        assert_eq!(parse_key_name("page_up").ok(), Some(Key::PageUp));
+        assert_eq!(parse_key_name("page_down").ok(), Some(Key::PageDown));
     }
 
     #[test]
     fn should_parse_modifier_keys() {
-        let Some(controller) = create_controller() else { return; };
-        assert_eq!(controller.parse_key("backspace").ok(), Some(Key::Backspace));
-        assert_eq!(controller.parse_key("delete").ok(), Some(Key::Delete));
-        assert_eq!(controller.parse_key("del").ok(), Some(Key::Delete));
-        assert_eq!(controller.parse_key("esc").ok(), Some(Key::Escape));
-        assert_eq!(controller.parse_key("return").ok(), Some(Key::Return));
+        assert_eq!(parse_key_name("backspace").ok(), Some(Key::Backspace));
+        assert_eq!(parse_key_name("delete").ok(), Some(Key::Delete));
+        assert_eq!(parse_key_name("del").ok(), Some(Key::Delete));
+        assert_eq!(parse_key_name("esc").ok(), Some(Key::Escape));
+        assert_eq!(parse_key_name("return").ok(), Some(Key::Return));
     }
 
     #[test]
     fn should_parse_function_keys_f1_to_f12() {
-        let Some(controller) = create_controller() else { return; };
         for (name, expected) in [
-            ("f1", Key::F1), ("f2", Key::F2), ("f3", Key::F3),
-            ("f4", Key::F4), ("f5", Key::F5), ("f6", Key::F6),
-            ("f7", Key::F7), ("f8", Key::F8), ("f9", Key::F9),
-            ("f10", Key::F10), ("f11", Key::F11), ("f12", Key::F12),
+            ("f1", Key::F1),
+            ("f2", Key::F2),
+            ("f3", Key::F3),
+            ("f4", Key::F4),
+            ("f5", Key::F5),
+            ("f6", Key::F6),
+            ("f7", Key::F7),
+            ("f8", Key::F8),
+            ("f9", Key::F9),
+            ("f10", Key::F10),
+            ("f11", Key::F11),
+            ("f12", Key::F12),
         ] {
             assert_eq!(
-                controller.parse_key(name).ok(),
+                parse_key_name(name).ok(),
                 Some(expected),
                 "failed for key: {name}"
             );
@@ -518,54 +514,49 @@ mod tests {
 
     #[test]
     fn should_error_on_unknown_key() {
-        let Some(controller) = create_controller() else { return; };
-        assert!(controller.parse_key("unknown_key").is_err());
-        assert!(controller.parse_key("").is_err());
-        assert!(controller.parse_key("ctrl+alt").is_err());
+        assert!(parse_key_name("unknown_key").is_err());
+        assert!(parse_key_name("").is_err());
+        assert!(parse_key_name("ctrl+alt").is_err());
     }
 
     #[test]
     fn should_parse_single_character_keys() {
-        let Some(controller) = create_controller() else { return; };
-        assert_eq!(controller.parse_key("z").ok(), Some(Key::Unicode('z')));
-        assert_eq!(controller.parse_key("X").ok(), Some(Key::Unicode('x'))); // lowercased
-        assert_eq!(controller.parse_key("9").ok(), Some(Key::Unicode('9')));
-        assert_eq!(controller.parse_key("!").ok(), Some(Key::Unicode('!')));
+        assert_eq!(parse_key_name("z").ok(), Some(Key::Unicode('z')));
+        assert_eq!(parse_key_name("X").ok(), Some(Key::Unicode('x'))); // lowercased
+        assert_eq!(parse_key_name("9").ok(), Some(Key::Unicode('9')));
+        assert_eq!(parse_key_name("!").ok(), Some(Key::Unicode('!')));
     }
 
     #[test]
-    fn should_create_with_custom_intervals() {
-        let Ok(controller) = InputController::with_intervals(100, 20) else { return; };
-        assert_eq!(controller.click_interval_ms, 100);
-        assert_eq!(controller.key_interval_ms, 20);
+    fn should_convert_all_key_modifiers() {
+        assert_eq!(key_modifier_to_key(KeyModifier::Shift), Key::Shift);
+        assert_eq!(key_modifier_to_key(KeyModifier::Ctrl), Key::Control);
+        assert_eq!(key_modifier_to_key(KeyModifier::Alt), Key::Alt);
+        assert_eq!(key_modifier_to_key(KeyModifier::Meta), Key::Meta);
     }
 
+    /// 需要真实输入后端：本地跑 `cargo test -- --ignored`。
     #[test]
-    fn should_have_default_intervals() {
-        let Some(controller) = create_controller() else { return; };
+    #[ignore = "需要真实输入后端，headless CI 上 enigo 会崩"]
+    fn test_input_controller_creation() {
+        let controller = InputController::new().expect("input backend");
         assert_eq!(controller.click_interval_ms, 10);
         assert_eq!(controller.key_interval_ms, 1);
     }
 
     #[test]
-    fn should_convert_all_mouse_buttons() {
-        let variants = [MouseButton::Left, MouseButton::Right, MouseButton::Middle];
-        for &variant in &variants {
-            let button: Button = variant.into();
-            match variant {
-                MouseButton::Left => assert_eq!(button, Button::Left),
-                MouseButton::Right => assert_eq!(button, Button::Right),
-                MouseButton::Middle => assert_eq!(button, Button::Middle),
-            }
-        }
+    #[ignore = "需要真实输入后端，headless CI 上 enigo 会崩"]
+    fn should_create_with_custom_intervals() {
+        let controller = InputController::with_intervals(100, 20).expect("input backend");
+        assert_eq!(controller.click_interval_ms, 100);
+        assert_eq!(controller.key_interval_ms, 20);
     }
 
     #[test]
-    fn should_convert_all_key_modifiers() {
-        let Some(controller) = create_controller() else { return; };
-        assert_eq!(controller.modifier_to_key(KeyModifier::Shift), Key::Shift);
-        assert_eq!(controller.modifier_to_key(KeyModifier::Ctrl), Key::Control);
-        assert_eq!(controller.modifier_to_key(KeyModifier::Alt), Key::Alt);
-        assert_eq!(controller.modifier_to_key(KeyModifier::Meta), Key::Meta);
+    #[ignore = "需要真实输入后端，headless CI 上 enigo 会崩"]
+    fn should_have_default_intervals() {
+        let controller = InputController::new().expect("input backend");
+        assert_eq!(controller.click_interval_ms, 10);
+        assert_eq!(controller.key_interval_ms, 1);
     }
 }
