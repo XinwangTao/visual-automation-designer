@@ -163,6 +163,7 @@ pub fn run() {
             commands::clear_image_library,
             commands::get_image_thumbnail,
             commands::get_desktop_bounds,
+            commands::undo_image_edit,
             commands::get_image,
             // Flow management commands
             commands::create_flow,

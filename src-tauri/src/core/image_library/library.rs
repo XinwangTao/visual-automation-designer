@@ -490,6 +490,7 @@ impl ImageLibraryManager {
         roi: Option<crate::models::block::Region>,
     ) -> Result<ImageMetadata> {
         self.refresh_from_disk();
+        self.snapshot_before_edit(id)?;
 
         let image = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
             .map_err(|e| AppError::ImageError(e.to_string()))?;
@@ -520,6 +521,79 @@ impl ImageLibraryManager {
         Ok(metadata)
     }
 
+    /// 编辑前的快照路径（<id>.undo.png / <id>.undo.json）。
+    fn undo_paths(&self, id: &ImageId) -> (std::path::PathBuf, std::path::PathBuf) {
+        let stem = id.0.to_string();
+        (
+            self.images_dir.join(format!("{stem}.undo.png")),
+            self.images_dir.join(format!("{stem}.undo.json")),
+        )
+    }
+
+    /// 在修改图片之前存一份快照，供 Ctrl+Z 回滚（只保留最近一次）。
+    fn snapshot_before_edit(&self, id: &ImageId) -> Result<()> {
+        let (undo_png, undo_json) = self.undo_paths(id);
+        if undo_png.exists() && undo_json.exists() {
+            return Ok(()); // 已经有更早的快照，保留它
+        }
+        let entry = {
+            let library = self.library.lock()
+                .map_err(|e| AppError::InternalError(
+                    format!("Failed to lock library: {}", e)
+                ))?;
+            library.get_image(id).cloned()
+        };
+        let Some(entry) = entry else { return Ok(()) };
+        let source = self.images_dir.join(&entry.file_path);
+        if source.exists() {
+            fs::copy(&source, &undo_png)?;
+        }
+        let snapshot = serde_json::json!({
+            "width": entry.width,
+            "height": entry.height,
+            "hash": entry.hash,
+            "roi": entry.roi,
+            "source": entry.source,
+        });
+        fs::write(&undo_json, serde_json::to_vec_pretty(&snapshot)?)?;
+        Ok(())
+    }
+
+    /// 撤销上一次可视化修改（ROI / 重裁）。返回 false 表示没有可撤销的快照。
+    pub fn undo_last_edit(&self, id: &ImageId) -> Result<bool> {
+        self.refresh_from_disk();
+        let (undo_png, undo_json) = self.undo_paths(id);
+        if !undo_png.exists() || !undo_json.exists() {
+            return Ok(false);
+        }
+        let raw = fs::read_to_string(&undo_json)?;
+        let snapshot: serde_json::Value = serde_json::from_str(&raw)?;
+
+        let file_path = {
+            let mut library = self.library.lock()
+                .map_err(|e| AppError::InternalError(
+                    format!("Failed to lock library: {}", e)
+                ))?;
+            let entry = library
+                .get_image_mut(id)
+                .ok_or_else(|| AppError::ImageNotFound(id.to_string()))?;
+            entry.width = snapshot["width"].as_u64().unwrap_or(entry.width as u64) as u32;
+            entry.height = snapshot["height"].as_u64().unwrap_or(entry.height as u64) as u32;
+            if let Some(hash) = snapshot["hash"].as_str() {
+                entry.hash = hash.to_string();
+            }
+            entry.roi = serde_json::from_value(snapshot["roi"].clone()).unwrap_or(None);
+            entry.source = serde_json::from_value(snapshot["source"].clone()).unwrap_or(None);
+            entry.file_path.clone()
+        };
+
+        fs::copy(&undo_png, self.images_dir.join(&file_path))?;
+        let _ = fs::remove_file(&undo_png);
+        let _ = fs::remove_file(&undo_json);
+        self.save_library()?;
+        Ok(true)
+    }
+
     /// Blocks fall back to this region when their own ROI is empty, so editing
     /// it here changes where flows look for the image.
     pub fn set_image_roi(
@@ -528,6 +602,7 @@ impl ImageLibraryManager {
         roi: Option<crate::models::block::Region>,
     ) -> Result<bool> {
         self.refresh_from_disk();
+        self.snapshot_before_edit(id)?;
         let success = {
             let mut library = self.library.lock()
                 .map_err(|e| AppError::InternalError(

@@ -167,6 +167,13 @@ export async function setImageRoi(id: string, roi: ScreenRect | null): Promise<b
 }
 
 /**
+ * 撤销这张图上一次可视化修改（ROI 或重裁）。返回 false 表示没有可撤销的内容。
+ */
+export async function undoImageEdit(id: string): Promise<boolean> {
+  return invoke<boolean>('undo_image_edit', { id });
+}
+
+/**
  * 清空图片库（删除所有图片文件，不可恢复）。
  */
 export async function clearImageLibrary(): Promise<number> {

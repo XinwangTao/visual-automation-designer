@@ -108,6 +108,8 @@ export function CaptureOverlay() {
     startY: number;
     origin: Selection;
   } | null>(null);
+  /** 刚打开编辑时的两个框，Ctrl+Z 用来复位。 */
+  const initialBoxesRef = useRef<{ image: Selection; roi: Selection } | null>(null);
 
   const editTarget = useRef(getEditTarget());
   const isEdit = editTarget.current !== null;
@@ -342,6 +344,12 @@ export function CaptureOverlay() {
       } else if (event.key === 'Enter') {
         event.preventDefault();
         void handleSave();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+        // 编辑模式：Ctrl+Z 把两个框恢复到刚打开时的位置
+        if (initialBoxesRef.current) {
+          event.preventDefault();
+          setEditBoxes(initialBoxesRef.current);
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -397,7 +405,9 @@ export function CaptureOverlay() {
                 const source = target.source ?? target.roi;
                 const roi = target.roi ?? target.source;
                 if (source && roi) {
-                  setEditBoxes({ image: toBox(source), roi: toBox(roi) });
+                  const initial = { image: toBox(source), roi: toBox(roi) };
+                  initialBoxesRef.current = initial;
+                  setEditBoxes(initial);
                 }
               }
             }

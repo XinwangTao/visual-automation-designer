@@ -21,6 +21,7 @@ import {
   renameImage,
   setImageRoi,
   testImageTarget,
+  undoImageEdit,
 } from '../../tauri/commands';
 import type { ImageMetadata, ScreenRect } from '../../types/image';
 import type { DesktopBounds, ScreenPreview } from '../../tauri/commands';
@@ -188,6 +189,31 @@ export function ImageLibraryDrawer({
   }, [images, query]);
 
   const notifyChanged = useCallback(() => onChanged?.(), [onChanged]);
+
+  // Ctrl+Z：撤销当前图片上一次可视化修改（改 ROI / 重裁）。
+  useEffect(() => {
+    if (!open || !activeId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
+      const target = event.target as HTMLElement | null;
+      if (target && /^(input|textarea|select)$/i.test(target.tagName)) return;
+      event.preventDefault();
+      void (async () => {
+        try {
+          const undone = await undoImageEdit(activeId);
+          await refresh();
+          notifyChanged();
+          if (!undone) setError('没有可撤销的修改');
+          else setError(null);
+        } catch (err) {
+          setError(toError(err).message || '撤销失败');
+        }
+      })();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, activeId, refresh, notifyChanged]);
+
 
   /** 框选完成后把 ROI 写回当前图片，并清掉本次临时入库的图片。 */
   useEffect(() => {

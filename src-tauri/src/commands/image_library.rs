@@ -136,6 +136,20 @@ pub fn set_image_roi(
     manager.set_image_roi(&image_id, roi)
 }
 
+/// 撤销这张图上一次可视化修改（ROI 或重裁）。
+#[tauri::command]
+pub fn undo_image_edit(
+    state: State<'_, ImageLibraryState>,
+    id: String,
+) -> Result<bool> {
+    let image_id = parse_image_id(&id)?;
+    let manager = state.manager.lock()
+        .map_err(|e| AppError::InternalError(
+            format!("Failed to lock image library manager: {}", e)
+        ))?;
+    manager.undo_last_edit(&image_id)
+}
+
 /// Delete every image in the library. Destructive: the UI asks first.
 #[tauri::command]
 pub fn clear_image_library(
