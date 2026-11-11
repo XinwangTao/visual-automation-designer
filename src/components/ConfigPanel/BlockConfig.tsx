@@ -229,7 +229,12 @@ export function BlockConfig({
       case 'wait_image':
         return !!localConfig.imageId;
       case 'wait_time':
-        return typeof localConfig.durationMs === 'number' && localConfig.durationMs >= 0;
+        // 新拖进来的块还没写过 durationMs，界面显示默认 1000，这里也要认这个默认值，
+        // 否则「保存」一直是灰的（用户以为卡住了）。
+        return (
+          localConfig.durationMs === undefined ||
+          (typeof localConfig.durationMs === 'number' && localConfig.durationMs >= 0)
+        );
       case 'input_text':
         return typeof localConfig.text === 'string' && localConfig.text.length > 0;
       case 'screenshot_assert':

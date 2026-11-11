@@ -43,7 +43,11 @@ const defaultEdgeOptions = {
   type: 'smoothstep',
   animated: false,
   markerEnd: { type: MarkerType.ArrowClosed },
-  style: { strokeWidth: 2, stroke: '#666' },
+  // 线太暗会像背景网格，稍微提亮一点
+  style: { strokeWidth: 2.2, stroke: 'var(--color-text-secondary, #8a94a6)' },
+  // 连线只有 2px 宽，默认命中区太窄，鼠标基本抓不住。
+  interactionWidth: 28,
+  selectable: true,
 } as const;
 
 const BLOCK_COLORS: Record<string, string> = {
@@ -87,6 +91,24 @@ function getPlacementHintMessage(pendingPlacement?: { type: string; category: st
     return `点击白板放置: ${pendingPlacement.type} · 提示：循环体当前仅支持 1 个直接子节点`;
   }
   return `点击白板放置: ${pendingPlacement.type}`;
+}
+
+/** 选中连线后按 Delete/Backspace 直接删除。 */
+function EdgeDeleteHotkey({ edgeId, onDelete }: { edgeId: string | null; onDelete: (id: string) => void }) {
+  useEffect(() => {
+    if (!edgeId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+      const target = event.target as HTMLElement | null;
+      if (target && /^(input|textarea|select)$/i.test(target.tagName)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onDelete(edgeId);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [edgeId, onDelete]);
+  return null;
 }
 
 function toFlowPosition(instance: ReactFlowInstance, point: { x: number; y: number }) {
@@ -150,6 +172,8 @@ export const FlowCanvas = memo(function FlowCanvas({
 }: FlowCanvasProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
+  /** 当前选中的连线：Delete/Backspace 直接删除（原来只能右键菜单）。 */
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
 
   // ── Internal state fallback ─────────────────────────────────────
   const [internalNodes, setInternalNodes] = useState<Node[]>([]);
@@ -414,6 +438,8 @@ export const FlowCanvas = memo(function FlowCanvas({
       onMouseDownCapture={onCanvasClickCapture}
       onClickCapture={onCanvasClickCapture}
     >
+      {/* Delete/Backspace 删除选中的连线 */}
+      <EdgeDeleteHotkey edgeId={selectedEdgeId} onDelete={(id) => { onEdgeDelete?.(id); setSelectedEdgeId(null); }} />
       <ReactFlowProvider>
         <ReactFlow
           nodes={nodesWithExecutingState}
@@ -422,15 +448,21 @@ export const FlowCanvas = memo(function FlowCanvas({
           onEdgesChange={handleEdgesChange}
           onConnect={onConnect}
           onNodeClick={onNodeClick}
-          onPaneClick={onPaneClick}
+          onPaneClick={() => {
+            setSelectedEdgeId(null);
+            onPaneClick?.();
+          }}
           onPaneMouseMove={onPaneMouseMove}
           onInit={setReactFlowInstance}
           onNodeContextMenu={onNodeContextMenu}
           onEdgeContextMenu={onEdgeContextMenu}
+          onEdgeClick={(_event, edge) => setSelectedEdgeId(edge.id)}
           onPaneContextMenu={onPaneContextMenu}
           nodeTypes={nodeTypes}
           defaultEdgeOptions={defaultEdgeOptions}
           connectionMode={ConnectionMode.Loose}
+          // 拖线时靠近手柄就把线吸过去，不用精确命中 12px 的圆点
+          connectionRadius={28}
           snapToGrid={true}
           snapGrid={[20, 20]}
           fitView

@@ -1801,3 +1801,44 @@
   text-align: center;
   font-weight: 700;
 }
+
+/* ── 连线交互可抓取性 ─────────────────────────────────────────── */
+/* 连接点默认可见（原来只在 hover 时出现，用户根本找不到从哪拖） */
+.blockNodeHandle {
+  opacity: 0.55 !important;
+  cursor: crosshair;
+}
+
+.blockNode:hover .blockNodeHandle,
+.blockNodeSelected .blockNodeHandle,
+.blockNodeExecuting .blockNodeHandle {
+  opacity: 1 !important;
+}
+
+/* 视觉上仍是 12px 的圆点，但命中区放大到 ~26px */
+.blockNodeHandle::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+}
+
+/* 连线：hover / 选中时加粗发光，配合 interactionWidth 更容易点中 */
+.react-flow__edge-path {
+  transition: stroke 0.12s ease, stroke-width 0.12s ease;
+}
+
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: var(--color-primary, #4c9aff) !important;
+  stroke-width: 2.6px !important;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--color-primary, #4c9aff) !important;
+  stroke-width: 3px !important;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--color-primary, #4c9aff) 60%, transparent));
+}
+
+.react-flow__edge.selected .react-flow__edge-interaction {
+  stroke-width: 34px;
+}
