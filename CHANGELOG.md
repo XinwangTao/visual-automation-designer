@@ -21,6 +21,17 @@
 
 ---
 
+## [1.0.8] - 2026-11-11
+
+### Fixed
+- 平台层单测不再各自创建 enigo 控制器：headless runner 上并发建 X11 连接会 SIGSEGV（`Can't open display` + signal 11），也偶发 `EstablishCon`；按键解析与修饰键映射拆成纯函数直测，需要真后端的三个用例标 `#[ignore]`，本地 `cargo test -- --ignored` 跑
+- `port_validator` 的 `WaitImage` 测试补 `roi` 字段，合并后 `cargo check --tests` 恢复通过
+
+### Changed
+- 合并 `feat/ai-debug-cli`：截图 + ROI 拖动编辑、图片库抽屉、兜底点击与匹配修复进入主线；沿用主线的运行时异常引用计数桥，CI 恢复全绿
+
+---
+
 ## [1.0.7] - 2026-11-11
 
 ### Added
