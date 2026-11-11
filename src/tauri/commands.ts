@@ -425,6 +425,8 @@ export async function testUiaTarget(params: {
 
 export interface ScreenPreview {
   data: string;
+  /** 预览图 MIME（后端现在发 JPEG，体积和编码时间都小一个数量级） */
+  mime?: string;
   width: number;
   height: number;
   previewWidth: number;

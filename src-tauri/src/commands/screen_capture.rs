@@ -49,8 +49,10 @@ struct FrozenDesktop {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenPreview {
-    /// Base64 PNG of the (possibly scaled) virtual desktop.
+    /// Base64 编码的预览图（JPEG；遮罩只需要显示，不需要无损）。
     pub data: String,
+    /// `data` 的 MIME 类型，前端拼 data URL 用。
+    pub mime: String,
     /// Native virtual-desktop pixel size.
     pub width: u32,
     pub height: u32,
@@ -86,6 +88,23 @@ pub struct CapturedImage {
     pub image: ImageMetadata,
     pub roi: ScreenRegion,
     pub center: ScreenPoint,
+}
+
+/// 预览图用 JPEG 编码：整屏 PNG 编码要几百毫秒、体积还有 2~3MB，
+/// 而遮罩只需要看清楚，JPEG 快一个数量级、体积小一个数量级。
+fn encode_preview_jpeg(image: &image::DynamicImage, quality: u8) -> Result<Vec<u8>> {
+    let rgb = image.to_rgb8();
+    let mut buffer = Vec::new();
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buffer, quality);
+    encoder
+        .encode(
+            rgb.as_raw(),
+            rgb.width(),
+            rgb.height(),
+            image::ColorType::Rgb8,
+        )
+        .map_err(|e| AppError::ImageError(e.to_string()))?;
+    Ok(buffer)
 }
 
 fn encode_png(image: &image::DynamicImage) -> Result<Vec<u8>> {
@@ -141,9 +160,10 @@ pub fn capture_screen_preview(app: AppHandle, max_width: Option<u32>) -> Result<
         (capture.image.clone(), width, height, 1.0)
     };
 
-    let data = base64::engine::general_purpose::STANDARD.encode(encode_png(&preview)?);
+    let data = base64::engine::general_purpose::STANDARD.encode(encode_preview_jpeg(&preview, 82)?);
     Ok(ScreenPreview {
         data,
+        mime: "image/jpeg".to_string(),
         width,
         height,
         preview_width,
@@ -376,7 +396,7 @@ pub fn open_screen_capture(app: AppHandle, state: State<'_, ScreenCaptureState>)
 
     // The desktop must be frozen while the app is off screen.
     let _ = main.hide();
-    std::thread::sleep(Duration::from_millis(220));
+    std::thread::sleep(Duration::from_millis(90));
 
     let capture = match ScreenCapture::capture_virtual_desktop() {
         Ok(capture) => capture,
@@ -503,9 +523,10 @@ pub fn get_screen_capture_preview(
         (frozen.image.clone(), width, height, 1.0)
     };
 
-    let data = base64::engine::general_purpose::STANDARD.encode(encode_png(&preview)?);
+    let data = base64::engine::general_purpose::STANDARD.encode(encode_preview_jpeg(&preview, 82)?);
     Ok(ScreenPreview {
         data,
+        mime: "image/jpeg".to_string(),
         width,
         height,
         preview_width,
