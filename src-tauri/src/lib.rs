@@ -205,6 +205,7 @@ pub fn run() {
             commands::show_screen_capture_window,
             commands::get_screen_capture_preview,
             commands::save_screen_capture,
+            commands::replace_image_from_screen,
             commands::cancel_screen_capture,
         ])
         // 截屏遮罩期间窗口没有标题栏，Alt+F4 会把整个 app 关掉；先取消截屏。

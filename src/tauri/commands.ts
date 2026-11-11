@@ -516,6 +516,17 @@ export async function onScreenCaptureSaved(
   });
 }
 
+/** 用当前冻结桌面的一块区域原地重裁已有图片（保持 id/名称）。 */
+export async function replaceImageFromScreen(params: {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): Promise<CapturedImage> {
+  return invoke<CapturedImage>('replace_image_from_screen', params);
+}
+
 /** 主窗口已被切成全屏框选层：前端挂载 CaptureOverlay。 */
 export async function onScreenCaptureOpened(callback: () => void): Promise<() => void> {
   const { listen } = await import('@tauri-apps/api/event');

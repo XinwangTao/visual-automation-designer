@@ -422,3 +422,52 @@
   color: var(--color-text-secondary, #93a0b8);
   font-variant-numeric: tabular-nums;
 }
+
+/* 真实屏幕视图：在画面上直接标出这张图的 ROI 与中心 */
+.screenBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.screenHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.screenView {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-border, #2a3550) 70%, transparent);
+  background: #000;
+}
+
+.screenImg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.screenRoi {
+  position: absolute;
+  border: 2px solid #6cb2ff;
+  border-radius: 3px;
+  box-shadow:
+    0 0 0 9999px rgba(4, 7, 15, 0.42),
+    0 0 12px rgba(76, 154, 255, 0.55);
+  pointer-events: none;
+}
+
+.screenCentre {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: #ffcf5c;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}

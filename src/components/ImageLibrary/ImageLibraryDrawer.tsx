@@ -11,8 +11,8 @@
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
+  captureScreenPreview,
   clearImageLibrary,
-  getDesktopBounds,
   listImages,
   onScreenCaptureClosed,
   onScreenCaptureSaved,
@@ -23,8 +23,8 @@ import {
   testImageTarget,
 } from '../../tauri/commands';
 import type { ImageMetadata, ScreenRect } from '../../types/image';
-import type { DesktopBounds } from '../../tauri/commands';
-import { beginRoiPick, endRoiPick } from '../../tauri/captureIntent';
+import type { DesktopBounds, ScreenPreview } from '../../tauri/commands';
+import { beginRoiPick, endRoiPick, setEditTarget } from '../../tauri/captureIntent';
 import { toError } from '../../utils/error';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { ImageThumb, invalidateImageThumb } from '../common/ImageThumb';
@@ -116,7 +116,9 @@ export function ImageLibraryDrawer({
   const [picking, setPicking] = useState(false);
   const [pickedFrom, setPickedFrom] = useState<Set<string> | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
-  const [bounds, setBounds] = useState<DesktopBounds | null>(null);
+  /** 真实屏幕截图（缩放后），用来核对 ROI 框在哪。 */
+  const [screenShot, setScreenShot] = useState<ScreenPreview | null>(null);
+  const [shotLoading, setShotLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -141,11 +143,27 @@ export function ImageLibraryDrawer({
     setQuery('');
     setTestResult(null);
     void refresh();
-    // 桌面边界用于把 ROI 画成相对位置（只读显示器信息，不截屏）。
-    void getDesktopBounds()
-      .then(setBounds)
-      .catch(() => setBounds(null));
   }, [open, refresh]);
+
+  const refreshShot = useCallback(async () => {
+    setShotLoading(true);
+    try {
+      setScreenShot(await captureScreenPreview(1600));
+    } catch {
+      setScreenShot(null);
+    } finally {
+      setShotLoading(false);
+    }
+  }, []);
+
+  // 展开某一行时抓一张当前屏幕，把 ROI 画在真实画面上。
+  useEffect(() => {
+    if (!open || !activeId) {
+      setScreenShot(null);
+      return;
+    }
+    void refreshShot();
+  }, [open, activeId, refreshShot]);
 
   const active = useMemo(
     () => images.find((image) => image.id === activeId) ?? null,
@@ -290,10 +308,15 @@ export function ImageLibraryDrawer({
     }
   };
 
-  const handlePickOnScreen = async () => {
+  /**
+   * 在屏幕上全屏查看并调整：遮罩里把这边的 ROI 作为初始选区，拖动即改位置/大小，
+   * 确认后**原地重裁这张图**（内容和 ROI 一起更新），不会新增图片。
+   */
+  const handleEditOnScreen = async () => {
     if (!active) return;
     setError(null);
     setPickedFrom(new Set(images.map((image) => image.id)));
+    setEditTarget({ id: active.id, roi: active.roi });
     beginRoiPick();
     setPicking(true);
     try {
@@ -301,6 +324,7 @@ export function ImageLibraryDrawer({
     } catch (err) {
       setPicking(false);
       endRoiPick();
+      setEditTarget(null);
       setError(toError(err).message || '打开屏幕截取失败');
     }
   };
@@ -437,28 +461,59 @@ export function ImageLibraryDrawer({
                     />
                   </div>
 
+                  <div className={styles.screenBlock}>
+                    <div className={styles.screenHead}>
+                      <span className={styles.label}>当前屏幕</span>
+                      <button
+                        className={styles.btnGhost}
+                        type="button"
+                        onClick={() => void refreshShot()}
+                        disabled={shotLoading}
+                        data-testid="image-screen-refresh"
+                      >
+                        {shotLoading ? '截取中…' : '刷新截图'}
+                      </button>
+                    </div>
+                    {screenShot ? (
+                      <div className={styles.screenView} data-testid="image-screen-view">
+                        <img
+                          className={styles.screenImg}
+                          src={`data:image/png;base64,${screenShot.data}`}
+                          alt="当前屏幕"
+                          draggable={false}
+                        />
+                        {image.roi && (
+                          <span
+                            className={styles.screenRoi}
+                            style={roiStyle(image.roi, {
+                              originX: screenShot.originX,
+                              originY: screenShot.originY,
+                              width: screenShot.width,
+                              height: screenShot.height,
+                            })}
+                          />
+                        )}
+                        {image.roi && (
+                          <span
+                            className={styles.screenCentre}
+                            style={centrestyle(image.roi, {
+                              originX: screenShot.originX,
+                              originY: screenShot.originY,
+                              width: screenShot.width,
+                              height: screenShot.height,
+                            })}
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      <div className={styles.mapMeta}>
+                        {shotLoading ? '正在截取当前屏幕…' : '暂时拿不到屏幕截图'}
+                      </div>
+                    )}
+                  </div>
+
                   {image.roi ? (
                     <div className={styles.mapBlock}>
-                      {bounds && (
-                        <div className={styles.map} data-testid="image-roi-map">
-                          <span className={styles.mapDesktop} />
-                          {images
-                            .filter((image) => image.roi && image.id !== image.id)
-                            .map((image) => (
-                              <span
-                                key={image.id}
-                                className={styles.mapGhost}
-                                style={roiStyle(image.roi!, bounds)}
-                                title={image.name}
-                              />
-                            ))}
-                          <span className={styles.mapRoi} style={roiStyle(image.roi, bounds)} />
-                          <span
-                            className={styles.mapCentre}
-                            style={centrestyle(image.roi, bounds)}
-                          />
-                        </div>
-                      )}
                       <div className={styles.mapMeta}>
                         屏幕位置 ({image.roi.x}, {image.roi.y}) {image.roi.width}×
                         {image.roi.height} · 中心 (
@@ -520,11 +575,12 @@ export function ImageLibraryDrawer({
                       <button
                         className={styles.btn}
                         type="button"
-                        onClick={() => void handlePickOnScreen()}
+                        onClick={() => void handleEditOnScreen()}
                         disabled={busy || picking}
+                        title="全屏打开当前屏幕，拖动框选即可修改这张图的大小/位置与 ROI"
                         data-testid="image-library-pick-roi"
                       >
-                        {picking ? '请在屏幕上框选…' : '在屏幕上框选'}
+                        {picking ? '请在屏幕上调整…' : '在屏幕上调整'}
                       </button>
                       <button className={styles.btnGhost} type="button" onClick={() => void handleClearRoi()} disabled={busy}>
                         清除 ROI

@@ -10,10 +10,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   cancelScreenCapture,
   getScreenCapturePreview,
+  replaceImageFromScreen,
   saveScreenCapture,
   showScreenCaptureWindow,
   type ScreenPreview,
 } from '../../tauri/commands';
+import { getEditTarget, setEditTarget } from '../../tauri/captureIntent';
 import { toError } from '../../utils/error';
 import styles from './CaptureOverlay.module.css';
 
@@ -41,6 +43,9 @@ export function CaptureOverlay() {
   const [saving, setSaving] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ startX: number; startY: number; dragging: boolean } | null>(null);
+
+  const editTarget = useRef(getEditTarget());
+  const isEdit = editTarget.current !== null;
 
   useEffect(() => {
     let cancelled = false;
@@ -147,7 +152,13 @@ export function CaptureOverlay() {
     setSaving(true);
     setError(null);
     try {
-      await saveScreenCapture({ name: defaultName(), ...region });
+      const target = editTarget.current;
+      if (target) {
+        await replaceImageFromScreen({ id: target.id, ...region });
+      } else {
+        await saveScreenCapture({ name: defaultName(), ...region });
+      }
+      setEditTarget(null);
       // 后端保存后会关闭本窗口；这里不再 setState。
     } catch (err) {
       setError(toError(err).message || '保存截图失败');
@@ -157,6 +168,7 @@ export function CaptureOverlay() {
 
   const handleCancel = useCallback(async () => {
     try {
+      setEditTarget(null);
       await cancelScreenCapture();
     } catch {
       // 后端不可用时用户仍可用 Alt+F4 关闭；不在这里直接操作窗口，避免依赖额外权限。
@@ -209,6 +221,21 @@ export function CaptureOverlay() {
           draggable={false}
           onLoad={() => {
             void showScreenCaptureWindow();
+            // 编辑模式：把这张图原来的 ROI 变成初始选区，直接拖动调整。
+            const target = editTarget.current;
+            const node = imgRef.current;
+            if (target?.roi && node && preview) {
+              const rect = node.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0) {
+                const scale = rect.width / preview.width;
+                setSelection({
+                  x: (target.roi.x - preview.originX) * scale,
+                  y: (target.roi.y - preview.originY) * scale,
+                  w: target.roi.width * scale,
+                  h: target.roi.height * scale,
+                });
+              }
+            }
           }}
         />
       )}
@@ -254,8 +281,10 @@ export function CaptureOverlay() {
       {preview && (
         <div className={styles.hint} role="status">
           {region
-            ? `${region.width} × ${region.height} px · 屏幕 ${screenRegion?.x ?? 0}, ${screenRegion?.y ?? 0} · Enter 保存 · Esc 取消`
-            : '拖拽框选区域 · Esc 取消'}
+            ? `${region.width} × ${region.height} px · 屏幕 ${screenRegion?.x ?? 0}, ${screenRegion?.y ?? 0} · Enter ${isEdit ? '应用' : '保存'} · Esc 取消`
+            : isEdit
+              ? '拖动或重新框选，调整这张图的区域 · Esc 取消'
+              : '拖拽框选区域 · Esc 取消'}
           {error ? ` · ${error}` : ''}
         </div>
       )}

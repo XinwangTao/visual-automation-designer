@@ -20,3 +20,19 @@ export function endRoiPick(): void {
 export function isRoiPick(): boolean {
   return roiPickActive;
 }
+
+export interface CaptureEditTarget {
+  id: string;
+  roi?: { x: number; y: number; width: number; height: number };
+}
+
+let editTarget: CaptureEditTarget | null = null;
+
+/** 标记「这次全屏框选是把某张图原地重裁」，并把它的 ROI 作为初始选区。 */
+export function setEditTarget(target: CaptureEditTarget | null): void {
+  editTarget = target;
+}
+
+export function getEditTarget(): CaptureEditTarget | null {
+  return editTarget;
+}

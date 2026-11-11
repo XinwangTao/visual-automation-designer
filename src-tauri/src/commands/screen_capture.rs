@@ -646,6 +646,111 @@ pub fn save_screen_capture(
     Ok(captured)
 }
 
+/// 用当前冻结桌面里的一块区域，**原地重裁**已有图片（保持 id 与名称）。
+///
+/// 图片库里的「在屏幕上调整」走这里：全屏查看 → 拖动框选 → 内容和 ROI 一起更新，
+/// 不会像「从屏幕截取」那样再存一张新图。
+#[tauri::command]
+pub fn replace_image_from_screen(
+    app: AppHandle,
+    state: State<'_, ScreenCaptureState>,
+    image_library_state: State<'_, ImageLibraryState>,
+    id: String,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<CapturedImage> {
+    if width == 0 || height == 0 {
+        return Err(AppError::ValidationError(
+            "capture region must have a positive size".to_string(),
+        ));
+    }
+    let image_id = crate::models::ImageId(
+        uuid::Uuid::parse_str(&id)
+            .map_err(|_| AppError::ValidationError(format!("invalid image id: {id}")))?,
+    );
+
+    let result = (|| -> Result<CapturedImage> {
+        let (image_width, image_height, origin_x, origin_y) = {
+            let session = state
+                .session
+                .lock()
+                .map_err(|e| AppError::InternalError(format!("Failed to lock capture state: {e}")))?;
+            let frozen = session
+                .as_ref()
+                .ok_or_else(|| AppError::InternalError("no frozen desktop capture".to_string()))?;
+            (
+                frozen.image.width(),
+                frozen.image.height(),
+                frozen.origin_x,
+                frozen.origin_y,
+            )
+        };
+
+        let (ux, uy) = (x.max(0) as u32, y.max(0) as u32);
+        if x < 0
+            || y < 0
+            || width > image_width.saturating_sub(ux)
+            || height > image_height.saturating_sub(uy)
+        {
+            return Err(AppError::ValidationError(format!(
+                "capture region ({x},{y},{width},{height}) is outside the frozen desktop"
+            )));
+        }
+
+        let cropped = {
+            let session = state
+                .session
+                .lock()
+                .map_err(|e| AppError::InternalError(format!("Failed to lock capture state: {e}")))?;
+            let frozen = session
+                .as_ref()
+                .ok_or_else(|| AppError::InternalError("no frozen desktop capture".to_string()))?;
+            frozen.image.crop_imm(ux, uy, width, height)
+        };
+        let bytes = encode_png(&cropped)?;
+
+        let manager = image_library_state
+            .manager
+            .lock()
+            .map_err(|e| AppError::InternalError(format!("Failed to lock image library: {e}")))?;
+        let screen_x = origin_x + x;
+        let screen_y = origin_y + y;
+        let region = crate::models::Region {
+            x: screen_x,
+            y: screen_y,
+            width,
+            height,
+        };
+        let metadata = manager.replace_image_content(&image_id, &bytes, Some(region))?;
+        drop(manager);
+
+        Ok(CapturedImage {
+            image: metadata,
+            roi: ScreenRegion {
+                x: screen_x,
+                y: screen_y,
+                width,
+                height,
+            },
+            center: ScreenPoint {
+                x: screen_x + (width / 2) as i32,
+                y: screen_y + (height / 2) as i32,
+            },
+        })
+    })();
+
+    if let Ok(mut session) = state.session.lock() {
+        *session = None;
+    }
+    restore_main_window(&app, &state);
+    let captured = result?;
+    let _ = app.emit("screen-capture-saved", &captured);
+    let _ = app.emit("screen-capture-closed", ());
+    Ok(captured)
+}
+
 /// Close the picker without saving; the main window comes back.
 #[tauri::command]
 pub fn cancel_screen_capture(app: AppHandle, state: State<'_, ScreenCaptureState>) -> Result<()> {

@@ -3,7 +3,7 @@
  * 从 BlockConfig.tsx 提取：click / wait_image / wait_time / input_text / screenshot_assert / text_extract 的配置 UI。
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ClickMode } from '../../types/block';
 import { testImageTarget, testUiaTarget } from '../../tauri/commands';
 import { ImageSelector } from './ImageSelector';
@@ -39,11 +39,18 @@ export function ClickConfigUI({ config, onChange }: ConfigUIProps) {
   const mode = (config.mode as ClickMode) || { mode: 'coordinates', x: 0, y: 0 };
   const count = (config.count as number) ?? 1;
 
+  // 切模式时记住上次选过的图片，切回来不至于被清空（清空会让「保存」变灰，
+  // 看起来像点了没反应）。
+  const lastImageId = useRef<string>('');
+  if (mode.mode === 'image' && (mode as { imageId?: string }).imageId) {
+    lastImageId.current = (mode as { imageId?: string }).imageId as string;
+  }
+
   const handleModeChange = (newMode: 'coordinates' | 'image' | 'uia') => {
     if (newMode === 'coordinates') {
       onChange({ ...config, mode: { mode: 'coordinates', x: 0, y: 0 } });
     } else if (newMode === 'image') {
-      onChange({ ...config, mode: { mode: 'image', imageId: '' } });
+      onChange({ ...config, mode: { mode: 'image', imageId: lastImageId.current } });
     } else {
       onChange({ ...config, mode: { mode: 'uia', window: '', force: false } });
     }

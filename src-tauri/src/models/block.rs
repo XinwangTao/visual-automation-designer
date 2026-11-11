@@ -365,4 +365,34 @@ mod tests {
         );
         assert!(node.children.is_empty());
     }
+
+    #[test]
+    fn click_config_nested_fallback_parses() {
+        // 面板发过来的是 BlockConfig 整体（type + mode 双层 tag），必须一起验。
+        let json = r#"{"type":"click","mode":{"mode":"image","imageId":"00000000-0000-0000-0000-000000000000","fallbackClick":true,"button":"right"},"count":1}"#;
+        let config: BlockConfig = serde_json::from_str(json).expect("parse BlockConfig");
+        match config {
+            BlockConfig::Click { mode, .. } => match mode {
+                ClickMode::Image { fallback_click, button, .. } => {
+                    assert_eq!(fallback_click, Some(true), "嵌套结构下 fallbackClick 丢了");
+                    assert_eq!(button.as_deref(), Some("right"), "嵌套结构下 button 丢了");
+                }
+                _ => panic!("expected image mode"),
+            },
+            _ => panic!("expected click config"),
+        }
+    }
+
+    #[test]
+    fn click_image_fallback_fields_roundtrip() {
+        let json = r#"{"mode":"image","imageId":"00000000-0000-0000-0000-000000000000","fallbackClick":true,"button":"right"}"#;
+        let mode: ClickMode = serde_json::from_str(json).expect("parse");
+        match mode {
+            ClickMode::Image { fallback_click, button, .. } => {
+                assert_eq!(fallback_click, Some(true), "fallbackClick 必须被解析");
+                assert_eq!(button.as_deref(), Some("right"));
+            }
+            _ => panic!("expected image mode"),
+        }
+    }
 }

@@ -480,6 +480,42 @@ impl ImageLibraryManager {
 
     /// Attach (or clear) the screen region an image was captured from.
     ///
+    /// 用一块新截图**原地替换**已有图片的内容（保持 id / 名称），同时写入新的
+    /// 尺寸、哈希和屏幕位置。用于图片库里「在屏幕上调整」：框选即重裁这张图。
+    pub fn replace_image_content(
+        &self,
+        id: &ImageId,
+        bytes: &[u8],
+        roi: Option<crate::models::block::Region>,
+    ) -> Result<ImageMetadata> {
+        self.refresh_from_disk();
+
+        let image = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
+            .map_err(|e| AppError::ImageError(e.to_string()))?;
+        let (width, height) = (image.width(), image.height());
+        let hash = super::metadata::compute_content_hash(bytes);
+
+        let (file_path, metadata) = {
+            let mut library = self.library.lock()
+                .map_err(|e| AppError::InternalError(
+                    format!("Failed to lock library: {}", e)
+                ))?;
+
+            let entry = library
+                .get_image_mut(id)
+                .ok_or_else(|| AppError::ImageNotFound(id.to_string()))?;
+            entry.width = width;
+            entry.height = height;
+            entry.hash = hash;
+            entry.set_roi(roi);
+            (entry.file_path.clone(), entry.clone())
+        };
+
+        fs::write(self.images_dir.join(file_path), bytes)?;
+        self.save_library()?;
+        Ok(metadata)
+    }
+
     /// Blocks fall back to this region when their own ROI is empty, so editing
     /// it here changes where flows look for the image.
     pub fn set_image_roi(
