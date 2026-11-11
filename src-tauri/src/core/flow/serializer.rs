@@ -196,7 +196,7 @@ impl FlowExportSerializer {
         for block in flow.blocks.values() {
             match &block.config {
                 BlockConfig::Click { mode, .. } => {
-                    if let ClickMode::Image { image_id } = mode {
+                    if let ClickMode::Image { image_id, .. } = mode {
                         if let Some(image_id) = image_id {
                             image_ids.push(image_id.clone());
                         }
@@ -371,6 +371,7 @@ mod tests {
                 image_id: Some(image_id.clone()),
                 timeout_ms: Some(5000),
                 threshold: None,
+                roi: None,
             },
         );
         flow.add_block(block);
@@ -394,13 +395,14 @@ mod tests {
                 image_id: Some(image_id.clone()),
                 timeout_ms: Some(5000),
                 threshold: None,
+                roi: None,
             },
         );
         let block2 = BlockNode::new(
             BlockType::Action { action: ActionType::Click },
             BlockPosition::new(200.0, 100.0),
             BlockConfig::Click {
-                mode: ClickMode::Image { image_id: Some(image_id.clone()) },
+                mode: ClickMode::Image { image_id: Some(image_id.clone()), threshold: None, roi: None, fallback_click: None, button: None },
                 count: 1,
             },
         );

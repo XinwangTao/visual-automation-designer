@@ -73,6 +73,16 @@ pub enum BlockType {
     Control { control: ControlType },
 }
 
+/// Rectangle in virtual-screen physical pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Region {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// Position on the canvas (for rendering)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockPosition {
@@ -91,12 +101,54 @@ impl BlockPosition {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ClickMode {
-    /// Click at specific coordinates
-    Coordinates { x: u32, y: u32 },
+    /// Click at specific virtual-screen physical pixels.
+    ///
+    /// Signed because monitors left of / above the primary have negative
+    /// origins on the Windows virtual desktop.
+    Coordinates { x: i32, y: i32 },
     /// Click at the center of an image found on screen
     Image {
         #[serde(alias = "image_id")]
         image_id: Option<crate::models::image::ImageId>,
+        /// Matching accuracy threshold (0.0~1.0). Default: 0.7
+        #[serde(default, alias = "threshold")]
+        threshold: Option<f64>,
+        /// Optional search region in virtual-screen physical pixels.
+        #[serde(default)]
+        roi: Option<Region>,
+        /// 识别失败时退回「中心坐标」点击（兜底）。中心取 ROI 中心，没有 ROI 就用
+        /// 图片自带的截取位置中心。
+        #[serde(default, alias = "fallback_click", alias = "fallbackClick")]
+        fallback_click: Option<bool>,
+        /// 鼠标按键：left / right / middle，默认 left。
+        #[serde(default)]
+        button: Option<String>,
+    },
+    /// Click a Windows UI Automation control.
+    ///
+    /// The owning window is raised first; the control rect is re-read after
+    /// raising; and the click point is checked with `WindowFromPoint` so we
+    /// never click through a covering window. `force` skips only that final
+    /// occlusion check.
+    Uia {
+        /// Window title substring (case-insensitive).
+        window: String,
+        /// Control name substring (case-insensitive).
+        name: Option<String>,
+        /// AutomationId (exact, case-insensitive).
+        #[serde(alias = "automation_id")]
+        automation_id: Option<String>,
+        /// Win32 class name (exact, case-insensitive).
+        #[serde(alias = "class_name")]
+        class_name: Option<String>,
+        /// Control type name, e.g. `Button` (exact, case-insensitive).
+        #[serde(alias = "control_type")]
+        control_type: Option<String>,
+        /// Zero-based index among matches.
+        index: Option<usize>,
+        /// Skip the occlusion check (still raises the window).
+        #[serde(default)]
+        force: Option<bool>,
     },
 }
 
@@ -133,6 +185,9 @@ pub enum BlockConfig {
         /// Scores below this are treated as "not found".
         #[serde(alias = "threshold")]
         threshold: Option<f64>,
+        /// Optional search region in virtual-screen physical pixels.
+        #[serde(default)]
+        roi: Option<Region>,
     },
     /// Wait for time block configuration
     WaitTime {
@@ -279,6 +334,25 @@ mod tests {
     }
 
     #[test]
+    fn click_image_threshold_roundtrip() {
+        let mode = ClickMode::Image { image_id: None, threshold: Some(0.82), roi: None, fallback_click: None, button: None };
+        let json = serde_json::to_string(&mode).unwrap();
+        assert!(json.contains("\"threshold\""));
+        let back: ClickMode = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, mode);
+    }
+
+    #[test]
+    fn click_image_threshold_is_optional_for_old_flows() {
+        let back: ClickMode =
+            serde_json::from_str(r#"{"mode":"image","imageId":null}"#).unwrap();
+        assert_eq!(
+            back,
+            ClickMode::Image { image_id: None, threshold: None, roi: None, fallback_click: None, button: None },
+        );
+    }
+
+    #[test]
     fn test_block_node_creation() {
         let position = BlockPosition::new(100.0, 200.0);
         let config = BlockConfig::WaitTime { duration_ms: 1000 };
@@ -290,5 +364,35 @@ mod tests {
             config,
         );
         assert!(node.children.is_empty());
+    }
+
+    #[test]
+    fn click_config_nested_fallback_parses() {
+        // 面板发过来的是 BlockConfig 整体（type + mode 双层 tag），必须一起验。
+        let json = r#"{"type":"click","mode":{"mode":"image","imageId":"00000000-0000-0000-0000-000000000000","fallbackClick":true,"button":"right"},"count":1}"#;
+        let config: BlockConfig = serde_json::from_str(json).expect("parse BlockConfig");
+        match config {
+            BlockConfig::Click { mode, .. } => match mode {
+                ClickMode::Image { fallback_click, button, .. } => {
+                    assert_eq!(fallback_click, Some(true), "嵌套结构下 fallbackClick 丢了");
+                    assert_eq!(button.as_deref(), Some("right"), "嵌套结构下 button 丢了");
+                }
+                _ => panic!("expected image mode"),
+            },
+            _ => panic!("expected click config"),
+        }
+    }
+
+    #[test]
+    fn click_image_fallback_fields_roundtrip() {
+        let json = r#"{"mode":"image","imageId":"00000000-0000-0000-0000-000000000000","fallbackClick":true,"button":"right"}"#;
+        let mode: ClickMode = serde_json::from_str(json).expect("parse");
+        match mode {
+            ClickMode::Image { fallback_click, button, .. } => {
+                assert_eq!(fallback_click, Some(true), "fallbackClick 必须被解析");
+                assert_eq!(button.as_deref(), Some("right"));
+            }
+            _ => panic!("expected image mode"),
+        }
     }
 }

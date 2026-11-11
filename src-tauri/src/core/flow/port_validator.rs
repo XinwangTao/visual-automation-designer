@@ -204,6 +204,7 @@ mod tests {
                 image_id: None,
                 timeout_ms: Some(5000),
                 threshold: None,
+                roi: None,
             },
         );
         flow.entry_block = Some(block);
@@ -231,6 +232,7 @@ mod tests {
                 image_id: Some(crate::models::image::ImageId::new()),
                 timeout_ms: Some(5000),
                 threshold: None,
+                roi: None,
             },
         );
         flow.entry_block = Some(block);

@@ -21,6 +21,72 @@
 
 ---
 
+## [1.0.7] - 2026-11-11
+
+### Added
+- **在屏幕上调整（拖动）**：图片库里点「在屏幕上调整」会把**图片来源框（蓝色虚线）**和**搜索 ROI（红色实线）**铺在冻结屏幕上，直接拖动，不用重新框选；两个框各自独立——拖红框只改搜索区域，拖蓝框按新位置重裁内容。`source` 与 `roi` 分开存储。
+
+---
+
+## [1.0.6] - 2026-11-10
+
+### Added
+- **图片库抽屉**：顶部「图片库」按钮打开右侧抽屉，按名称筛选；展开可见大图、桌面缩略图上的 ROI 框与中心点、屏幕位置与中心坐标；支持改名、改 ROI（数字或回屏幕重新框选）、试匹配、删除单张与清空（二次确认）。
+- **兜底点击**：点击（图片模式）新增「识别失败时点击中心坐标（兜底）」与鼠标按键（左/右/中）；中心优先取块的 ROI，其次取图片自带的截取位置，面板直接显示兜底坐标。
+- **配置面板状态条**：用「● 保存状态 | ● 校验状态」替代原来的黄色横幅与三张信息卡；图片选择按钮改为「主操作整行 + 三个等分」。
+- **截屏遮罩视觉**：选区圆角 + 外发光 + 四角手柄，跟随光标的十字辅助线与实时屏幕坐标，玻璃质感提示条。
+- **屏幕框选截取（GUI）**：图片选择区「从屏幕截取」把主窗口临时切成无边框全屏框选层，显示**捕获时冻结的桌面**，拖拽出图片 + 屏幕坐标 + ROI；保存后主窗口恢复原尺寸/位置/边框。截图时 VAD 已隐藏，不会截到自己。
+- **AI 同款截取原语**：`vadctl capture-image --name N [--roi x,y,w,h]` 与 MCP `vad_capture`，走同一「冻结桌面→裁剪→入库」管线，返回 `{image, roi, center}`，可直接写进点击/等待图片块。
+- **GUI 目标测试**：点击/等待图片配置面板新增「测试目标」按钮，只读解析当前屏幕（图片分数、命中矩形、UIA 控件与遮挡窗口），不会点击或提窗。
+- **图片匹配阈值可配**：点击（图片模式）与等待图片支持 `threshold`，GUI 与流程 JSON 双向保存。
+- **UIA 控件配置 UI**：窗口标题、名称、AutomationId、类名、控件类型、序号、跳过遮挡校验。
+- **UI Refresh**：新增 `styles/ui-refresh.css` 最终视觉层——紧凑工具栏与 SVG 图标、工具箱列表化、节点卡片缩小到 236px、配置面板统一输入/按钮、底部面板折叠清理、弹窗与流程列表重排、亮/暗主题统一。
+- **Inspira UI 风格交互（React/CSS 复刻，MIT）**：Aurora 极光背景、Card Spotlight 鼠标聚光、Shimmer 主按钮流光、选中/运行节点的 Border Beam、主按钮 Ripple 按压反馈。
+- **液态玻璃背景（重做）**：低饱和漂移光场 + 细颗粒；工具栏/侧栏/画布/日志/配置/弹窗全部浮动磨砂玻璃，带渐变边框、内高光与柔和阴影；积木图标统一为单色线性 SVG，移除可见 emoji；支持 `prefers-reduced-motion`。
+- **液态玻璃背景**：缓慢漂移的彩色光场 + 磨砂工具栏/侧栏/日志/弹窗（backdrop-filter），并提供 `prefers-reduced-motion` 降级。
+- **GUI 试跑**：工具栏新增「试跑」按钮与 `dry_run_flow` 命令，按真实控制流解析目标但不点击、不输入、不提窗、不等待，返回每步证据。
+- **OCR 验证与文字点击**：修复 Windows OCR（IBuffer 直接建位图、真实行坐标、语言标签映射、`--scale` 放大）；新增 `vadctl ocr` / MCP `vad_ocr`，`click-target --ocr --text` 可按屏幕文字点击。
+- **视觉断言**：`vadctl diff` / MCP `vad_diff` 对比参考图，返回差异率与热力图；`find --all` 返回多候选与分数。
+- **窗口激活**：`vadctl activate` / MCP `vad_activate` 只提窗不点击；窗口截图/OCR 前自动提窗，避免截到覆盖者。
+- **安全约束**：`type`/`key` 在目标未真正前台时拒绝输入；drag 失败也会释放鼠标键，MCP 超时 best-effort mouse-up；截图默认拒绝覆盖、原图与预览分离；`--help` 不再触发真实动作；`wait --expect-value` 必须配 `--uia`。
+- **UIA 值读取**：`UIA` 节点新增 `value`（ValuePattern），`vad_wait` 支持 `--expect-value` / MCP `expectValue`，可等待编辑框/下拉框出现指定文本。
+- **Agent 闭环原语**：`vadctl windows`（窗口+矩形+pid）、`screenshot`（全屏/区域/窗口，可缩放）、`type`、`key`、`scroll`、`drag`、`wait`（窗口/控件/纯等待）；点击支持左右键/双击/次数。
+- **MCP 14 工具**：新增 `vad_windows` / `vad_screenshot` / `vad_type` / `vad_key` / `vad_scroll` / `vad_drag` / `vad_wait`；`vad_screenshot` 直接返回 image content，Claude 可在对话里直接看图。
+- **`docs/AI_AGENT_PLAYBOOK.md`**：Claude Code 完成任意 UI 自动化的观察→执行→验证循环、选择器语义与安全规则。
+- **`vadctl` 无头调试入口**（`src-tauri/src/bin/vadctl.rs` + `src-tauri/src/cli/`）：
+  `doctor` / `validate` / `list` / `get` / `find` / `uia` / `click-target` / `run` / `step`，统一 JSON 输出与退出码 `0/2/3/4/5`。
+- **执行证据**：`run`/`step` 写入 `runs/<timestamp>/report.json`，每步包含截图、匹配分数、命中矩形、耗时、尝试次数与错误。
+- **UIA 目标定位**（`platform/uia.rs`，移植自 MIT 许可的 mouse-recorder）：
+  窗口标题子串 + 控件 name 子串 / automationId / class / controlType / index。
+- **点击安全门**：UIA 点击前先提窗（AttachThreadInput + SetForegroundWindow），再重读控件矩形，最后用 `WindowFromPoint + GetAncestor(GA_ROOT)` 校验遮挡；被遮挡默认拒点，`--force` 才绕过。
+- **`vad-mcp`**：MCP stdio 薄包装，转调 `vadctl --json`，暴露 `vad_run` / `vad_validate` / `vad_find` / `vad_uia_find` / `vad_click_target` 等工具。
+- **模板搜索预算**：`find_image_bounded` 支持 ROI、3 秒时间预算、大模板粗扫 + 局部细扫；CLI `find` 默认使用。
+- **Dry-run**：解析坐标/模板/UIA 目标但不点击、不提窗、不等待、不写差异热力图。
+
+### Fixed
+- 截屏保存失败（例如选区越界）不再把窗口永久留在无边框全屏：无论成败都恢复窗口、清空会话并通知前端；Alt+F4 不会误退出应用。
+- 图片自带的 ROI 改为「提示」而非硬约束：ROI 内没命中会自动回退全屏搜索，执行与「测试匹配」结论一致。
+- 图片去重改用内容哈希 + 逐字节确认，修复不同颜色的纯色按钮被误判为同一张、复用错模板的问题。
+- 图片库元数据改为临时文件 + rename 原子写，并在读取端区分「文件暂时不存在」与「空库」；GUI 与 `vadctl` 并发写不再互相覆盖。
+- 「清空图片库」会连同未登记的孤儿图片文件一起删除。
+- 全屏匹配改用自适应金字塔：40px 小模板与 4K 桌面都能在 1~2 秒内给出结论，不再因预算截断而漏检。
+- **负坐标回绕**：点击坐标从 `u32` 改为 `i32`，`match_center` 不再把负的显示器原点强转 `u32`；副屏在主屏左侧时不再点到 `(-1,-1)`。
+- **单步重复执行**：`Executor::step()` 执行后推进 `current_block`，下一次 step 不再重复执行同一块；流程结束后也不从入口重跑。
+- **阈值状态泄漏**：`find_image_on_screen` 的临时阈值只在单次调用内生效，不再污染后续 `None` 调用。
+- **UIA 遮挡拒点**：覆盖窗口时返回目标错误（退出码 3）而不是把点击落到错误应用。
+
+### Changed
+- 执行引擎从 `tauri::AppHandle` 解耦为 `EventSink`，GUI、CLI、MCP 共用同一执行核心。
+- 点击坐标语义统一为虚拟桌面物理像素（可为负），GUI 配置面板新增 UIA 点击模式。
+
+### Verified
+- 实机：`doctor`、`validate`、`run --dry-run`（图片 30.2% 匹配 → 退出码 3 + 截图证据）。
+- 实机：受控 WinForms 窗口 UIA 按钮点击成功（按钮回调写入标记文件）。
+- 实机：置顶窗口覆盖同一控件时 `click-target --uia` 退出码 3，拒绝点击，错误信息指出覆盖窗口。
+- MCP：`initialize → tools/list → tools/call(vad_doctor)` 全链路返回正常。
+
+---
+
 ## [1.0.5] - 2026-06-09
 
 ### Changed

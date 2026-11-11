@@ -1,14 +1,14 @@
 # Visual Automation Designer
 
-[![CI](https://github.com/1716775457damn/visual-automation-designer/actions/workflows/ci.yml/badge.svg)](https://github.com/1716775457damn/visual-automation-designer/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/1716775457damn/visual-automation-designer?label=release)](https://github.com/1716775457damn/visual-automation-designer/releases)
+[![CI](https://github.com/XinwangTao/visual-automation-designer/actions/workflows/ci.yml/badge.svg)](https://github.com/XinwangTao/visual-automation-designer/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/XinwangTao/visual-automation-designer?label=release)](https://github.com/XinwangTao/visual-automation-designer/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 可视化屏幕自动化流程编辑器 — 通过拖拽节点和连线，像画流程图一样编排屏幕自动化任务。
 
 ## 下载
 
-到 [Releases](https://github.com/1716775457damn/visual-automation-designer/releases) 下载安装包：Windows（x64 安装器）、macOS（Intel / Apple Silicon）、Linux（AppImage / deb）。
+到 [Releases](https://github.com/XinwangTao/visual-automation-designer/releases) 下载安装包：Windows（x64 安装器）、macOS（Intel / Apple Silicon）、Linux（AppImage / deb）。
 
 **第一次用？先读 [使用教程](docs/TUTORIAL.md)**：从安装到跑通第一条「等待图片 → 点击 → 截图断言」流程，大约十分钟。
 
@@ -21,6 +21,11 @@
 新建流程时可以直接套一个起始模板，省掉「不知道先拖哪个块」这一步：
 
 ![新建流程与起始模板](docs/screenshots/new-flow.jpg)
+
+## 上手
+
+- **[使用教程](docs/TUTORIAL.md)** — 从建流程到跑起来：截图定位、ROI、兜底点击、图片库、常见问题
+- **[AI 无头调试手册](docs/AI_AGENT_PLAYBOOK.md)** — 让 Claude Code 等 Agent 直接驱动 UI 自动化
 
 ## 技术栈
 
@@ -60,9 +65,85 @@ npm run lint         # ESLint 检查
 npm run tauri build  # 打包桌面应用
 ```
 
+## AI 无头调试（vadctl / vad-mcp）
+
+GUI 之外提供两个控制台程序，供 AI Agent 和脚本直接调用；它们复用同一套 Rust 执行核心：
+
+```bash
+cd src-tauri
+cargo build --bins --release
+# 产物：
+#   target/release/vadctl.exe    命令行调试入口
+#   target/release/vad-mcp.exe   MCP stdio 服务（转调 vadctl）
+```
+
+常用命令：
+
+```bash
+vadctl doctor                                  # 数据目录/显示器/输入/UIA 自检
+vadctl validate --flow flow.json               # 结构化校验错误（含 blockId）
+vadctl run --flow flow.json --dry-run          # 只解析目标，不点击
+vadctl run --flow flow.json                    # 真跑并写证据
+vadctl step --flow flow.json --index 3         # 从入口执行前 3 个块（游标不跨进程）
+vadctl find --template ok.png --roi 0,0,800,600
+vadctl uia --window "记事本" --name 编辑 --control-type Edit
+vadctl click-target --uia --window "记事本" --name 确定 --dry-run
+
+# Agent 闭环原语
+vadctl windows                                   # 窗口标题/矩形/pid/前台
+vadctl screenshot --window "记事本" --max-width 1280
+vadctl capture-image --name 保存按钮 --roi 1800,1320,160,48   # 冻结桌面→裁剪→入库，返回 image+roi+center
+vadctl type --window "记事本" --uia --automation-id 15 --text "hello" --press-enter
+vadctl key --keys "ctrl+s" --window "记事本"
+vadctl scroll --amount -3 --coords 1200,700
+vadctl drag --from 100,100 --to 400,300 --duration-ms 500
+vadctl wait --window "记事本" --timeout-ms 5000
+vadctl wait --uia --window "记事本" --automation-id 15 --expect-value "已保存" --timeout-ms 5000
+vadctl find --template ok.png --all --limit 5         # 多候选（含分数/矩形）
+vadctl ocr --window "记事本" --lang chi_sim --expect 保存
+vadctl ocr --window "记事本" --lang chi_sim --scale 2  # 小字号放大后识别
+vadctl click-target --ocr --window "记事本" --text 保存 --lang chi_sim
+vadctl diff --reference before.png --window "记事本" --threshold 30
+vadctl activate --window "记事本"
+```
+
+`docs/AI_AGENT_PLAYBOOK.md` 给出了 Claude Code 用 MCP 完成任意 UI 任务的观察→执行→验证循环、选择器约定与安全规则。
+
+`run`/`step` 的证据目录：`<data-dir>/runs/<timestamp>/`（默认 `%APPDATA%\com.visualautomation.designer`），包含每步截图与 `report.json`：
+
+```json
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "steps": [
+    {
+      "index": 0,
+      "blockId": "...",
+      "action": "click:uia",
+      "ok": true,
+      "attempts": 1,
+      "score": 1.0,
+      "hitRect": { "x": 120, "y": 340, "width": 80, "height": 24 },
+      "elapsedMs": 42,
+      "screenshot": "00_xxx.png",
+      "target": "uia Button \"确定\""
+    }
+  ]
+}
+```
+
+退出码：`0` 成功；`2` 用法/解析/校验失败；`3` 目标未找到或被遮挡；`4` 断言/预期失败；`5` I/O/COM/运行时错误。
+
+UIA 点击默认先提窗、重读控件矩形并用 `WindowFromPoint` 校验遮挡；被其他窗口遮挡时拒绝点击（退出码 3），只有 `--force` 才跳过校验。
+
+MCP 用法（Claude Code 等）：把 `vad-mcp.exe` 作为 stdio MCP server 注册即可，工具列表包含 `vad_run`、`vad_validate`、`vad_find`、`vad_uia_find`、`vad_click_target` 等。若 `vad-mcp` 不在 `vadctl` 同目录，设置 `VADCTL_PATH`。
+
 ## 核心功能
 
 - **可视化流程编辑** — 基于 ReactFlow 的画布，拖拽节点、连线编排自动化步骤
+- **截图 + 坐标 + ROI** — 冻结桌面框选目标，自动记录屏幕位置与中心坐标；块没设 ROI 时回落到图片自带的位置
+- **兜底点击** — 图片识别失败时按中心坐标点击，流程不中断
+- **图片库抽屉** — 缩略图筛选、改名、可视化编辑 ROI/中心、试匹配、删除与一键清空
 - **屏幕截图比对** — 捕获屏幕区域，与预设图片进行像素级匹配，作为流程跳转条件
 - **键盘鼠标模拟** — 支持点击、输入、快捷键、滚轮等完整鼠标/键盘操作
 - **步骤调试** — 单步执行、暂停/继续、停止，实时查看每一步的执行状态
@@ -71,6 +152,7 @@ npm run tauri build  # 打包桌面应用
 - **起始模板** — 新建流程时可一键载入「等图 → 点击 → 等待」等示例链路，不用从空白画布起步
 - **撤销/重做** — 完整的历史记录支持，跨编辑会话
 - **双主题** — 亮色/暗色主题一键切换
+- **液态玻璃与 Inspira 风格交互** — 浮动磨砂面板、Aurora 光场、鼠标聚光、流光按钮、节点描边光束
 - **DPI 自适应** — 自动检测显示器缩放比例，纠正坐标映射
 
 ## 项目结构

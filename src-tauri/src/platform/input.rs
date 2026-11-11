@@ -78,14 +78,14 @@ impl InputController {
     // Mouse Operations
     // ========================================================================
 
-    /// Move mouse to absolute coordinates
+    /// Move mouse to absolute virtual-screen coordinates.
     ///
     /// # Arguments
-    /// * `x` - X coordinate
-    /// * `y` - Y coordinate
-    pub fn move_to(&mut self, x: u32, y: u32) -> Result<()> {
+    /// * `x` - X coordinate (may be negative on monitors left of the primary)
+    /// * `y` - Y coordinate (may be negative on monitors above the primary)
+    pub fn move_to(&mut self, x: i32, y: i32) -> Result<()> {
         self.enigo
-            .move_mouse(x as i32, y as i32, Coordinate::Abs)
+            .move_mouse(x, y, Coordinate::Abs)
             .map_err(|e| {
                 AppError::ExecutionFailed(format!("Failed to move mouse: {:?}", e))
             })?;
@@ -123,7 +123,7 @@ impl InputController {
     /// * `x` - X coordinate
     /// * `y` - Y coordinate
     /// * `button` - Mouse button to click
-    pub fn click_at(&mut self, x: u32, y: u32, button: MouseButton) -> Result<()> {
+    pub fn click_at(&mut self, x: i32, y: i32, button: MouseButton) -> Result<()> {
         self.move_to(x, y)?;
         thread::sleep(Duration::from_millis(self.click_interval_ms));
         self.click(button)?;
@@ -147,7 +147,7 @@ impl InputController {
     /// * `x` - X coordinate
     /// * `y` - Y coordinate
     /// * `button` - Mouse button to click
-    pub fn double_click_at(&mut self, x: u32, y: u32, button: MouseButton) -> Result<()> {
+    pub fn double_click_at(&mut self, x: i32, y: i32, button: MouseButton) -> Result<()> {
         self.move_to(x, y)?;
         thread::sleep(Duration::from_millis(self.click_interval_ms));
         self.double_click(button)?;
@@ -194,6 +194,47 @@ impl InputController {
             })?;
         }
         Ok(())
+    }
+
+    /// Drag from one point to another with linear interpolation.
+    ///
+    /// Holds the mouse button down for `duration_ms`, moving in small steps so
+    /// drag-and-drop UIs observe intermediate positions.
+    pub fn drag(
+        &mut self,
+        from_x: i32,
+        from_y: i32,
+        to_x: i32,
+        to_y: i32,
+        duration_ms: u64,
+        button: MouseButton,
+    ) -> Result<()> {
+        self.move_to(from_x, from_y)?;
+        thread::sleep(Duration::from_millis(40));
+        self.mouse_down(button)?;
+
+        // Always release the button, even if a move fails; a stuck mouse
+        // button would break every later automation run on this desktop.
+        let drag_result = (|| -> Result<()> {
+            let steps = (duration_ms / 16).max(4).min(120);
+            for step in 1..=steps {
+                let t = step as f64 / steps as f64;
+                let x = from_x as f64 + (to_x - from_x) as f64 * t;
+                let y = from_y as f64 + (to_y - from_y) as f64 * t;
+                self.enigo
+                    .move_mouse(x.round() as i32, y.round() as i32, Coordinate::Abs)
+                    .map_err(|e| {
+                        AppError::ExecutionFailed(format!("Failed to drag mouse: {:?}", e))
+                    })?;
+                thread::sleep(Duration::from_millis((duration_ms / steps).max(1)));
+            }
+            thread::sleep(Duration::from_millis(40));
+            Ok(())
+        })();
+
+        let release_result = self.mouse_up(button);
+        drag_result?;
+        release_result
     }
 
     // ========================================================================

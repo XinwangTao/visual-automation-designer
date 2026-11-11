@@ -4,6 +4,7 @@
 //! - Executor: Controls flow execution (start, stop, pause, resume, step)
 //! - ExecutionContext: Maintains execution state
 //! - ExecutionEvent: Events emitted during execution
+//! - EventSink: Delivery abstraction (GUI Tauri events or headless collectors)
 //!
 //! Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5, 5.6
 
@@ -13,7 +14,9 @@ mod image_match;
 mod input_sim;
 mod context;
 mod events;
+mod sink;
 
 pub use runner::{ExecutionController, Executor};
 pub use context::ExecutionContext;
-pub use events::{ExecutionEvent, ExecutionStatus};
+pub use events::{BlockEvidence, ExecutionEvent, ExecutionStatus, HitRect};
+pub use sink::{EventSink, NullEventSink, SharedEventSink};

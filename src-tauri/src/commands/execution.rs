@@ -12,12 +12,35 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
 
-use crate::core::execution::{ExecutionController, Executor, ExecutionStatus};
-use crate::core::execution::ExecutionEvent;
+use crate::core::execution::{
+    EventSink, ExecutionController, ExecutionEvent, ExecutionStatus, Executor, SharedEventSink,
+};
 use crate::error::{AppError, Result};
 use crate::models::{FlowId, ImageId, ImageMetadata};
 use crate::platform::{InputController, ScreenCapture};
 use std::fs;
+
+/// Delivers executor events to the Tauri frontend.
+///
+/// The executor core no longer depends on `AppHandle`; headless binaries plug in
+/// their own sink while the GUI keeps emitting `execution-event`.
+struct TauriEventSink {
+    app_handle: AppHandle,
+}
+
+impl EventSink for TauriEventSink {
+    fn emit(&self, event: &ExecutionEvent) {
+        if let Err(e) = self.app_handle.emit("execution-event", event) {
+            log::error!("Failed to emit execution event: {}", e);
+        }
+    }
+}
+
+fn event_sink(app_handle: &AppHandle) -> SharedEventSink {
+    Arc::new(TauriEventSink {
+        app_handle: app_handle.clone(),
+    })
+}
 
 /// Application state containing the execution state
 pub struct ExecutionState {
@@ -106,17 +129,16 @@ pub async fn execute_flow(
         .join("images");
     
     // Create executor
-    let mut executor = Executor::new(flow, execution_state.app_handle.clone(), images_dir);
+    let mut executor = Executor::new(
+        flow,
+        event_sink(&execution_state.app_handle),
+        images_dir,
+    );
     executor.set_image_library(image_library);
 
-    // Query real DPI scale factor for coordinate correction.
-    // Uses primary monitor (index 0) scale factor by default.
-    if let Ok(monitors) = ScreenCapture::list_monitors_with_tauri(&execution_state.app_handle) {
-        if let Some(primary) = monitors.first() {
-            executor.set_dpi_scale(primary.scale_factor);
-        }
-    }
-    
+    // Coordinates are virtual-screen physical pixels everywhere (CLI, MCP,
+    // GUI). Do not apply a host scale factor here: it made the GUI disagree
+    // with `vadctl` on 125%/150% displays.
     // Clear any interactive executor before starting a background run.
     {
         let mut exec_guard = execution_state.executor.lock().await;
@@ -137,9 +159,22 @@ pub async fn execute_flow(
     let tracked_status = Arc::clone(&execution_state.status);
     let app_handle = execution_state.app_handle.clone();
 
+    // 运行期间把主窗口最小化：本窗口自己会挡住流程要点击的目标，
+    // 图像匹配和坐标点击都因此失败。
+    let run_window = app_handle.get_webview_window("main");
+    if let Some(window) = run_window.as_ref() {
+        let _ = window.minimize();
+    }
+
     tauri::async_runtime::spawn(async move {
         let result = executor.start().await;
         let final_status = executor.status().await;
+
+        // 跑完把窗口还回来（用户中途自己恢复过也无妨）。
+        if let Some(window) = run_window.as_ref() {
+            let _ = window.unminimize();
+            let _ = window.show();
+        }
 
         if let Err(error) = result {
             crate::logging::log_error(
@@ -229,16 +264,13 @@ pub async fn step_execution(
             .join("images");
         
         // Create executor
-        let mut executor = Executor::new(flow, execution_state.app_handle.clone(), images_dir);
+        let mut executor = Executor::new(
+        flow,
+        event_sink(&execution_state.app_handle),
+        images_dir,
+    );
         executor.set_image_library(image_library);
 
-        // Query real DPI scale factor for coordinate correction
-        if let Ok(monitors) = ScreenCapture::list_monitors_with_tauri(&execution_state.app_handle) {
-            if let Some(primary) = monitors.first() {
-                executor.set_dpi_scale(primary.scale_factor);
-            }
-        }
-        
         // Store executor
         let mut exec_guard = execution_state.executor.lock().await;
         *exec_guard = Some(executor);
@@ -415,6 +447,175 @@ pub async fn get_execution_status(
 // ============================================================================
 
 /// Parse a flow ID from a string.
+
+// ============================================================================
+// Dry run (resolve targets, perform no desktop actions)
+// ============================================================================
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DryRunStep {
+    pub block_id: String,
+    pub ok: bool,
+    pub elapsed_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hit_rect: Option<crate::core::execution::HitRect>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DryRunResponse {
+    pub ok: bool,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub steps: Vec<DryRunStep>,
+}
+
+struct DryRunSink {
+    steps: Arc<std::sync::Mutex<Vec<DryRunStep>>>,
+}
+
+impl EventSink for DryRunSink {
+    fn emit(&self, event: &ExecutionEvent) {
+        let record = match event {
+            ExecutionEvent::BlockCompleted {
+                block_id,
+                success,
+                elapsed_ms,
+                evidence,
+                ..
+            } => Some(DryRunStep {
+                block_id: block_id.to_string(),
+                ok: *success,
+                elapsed_ms: *elapsed_ms,
+                score: evidence.as_ref().and_then(|e| e.score),
+                hit_rect: evidence.as_ref().and_then(|e| e.hit_rect),
+                target: evidence.as_ref().and_then(|e| e.target.clone()),
+                error: None,
+            }),
+            ExecutionEvent::BlockError {
+                block_id,
+                message,
+                elapsed_ms,
+                evidence,
+                ..
+            } => Some(DryRunStep {
+                block_id: block_id.to_string(),
+                ok: false,
+                elapsed_ms: *elapsed_ms,
+                score: evidence.as_ref().and_then(|e| e.score),
+                hit_rect: evidence.as_ref().and_then(|e| e.hit_rect),
+                target: evidence.as_ref().and_then(|e| e.target.clone()),
+                error: Some(message.clone()),
+            }),
+            _ => None,
+        };
+        if let Some(record) = record {
+            if let Ok(mut steps) = self.steps.lock() {
+                steps.push(record);
+            }
+        }
+    }
+}
+
+fn dry_run_status_name(status: ExecutionStatus) -> String {
+    match status {
+        ExecutionStatus::Idle => "idle",
+        ExecutionStatus::Running => "running",
+        ExecutionStatus::Paused => "paused",
+        ExecutionStatus::Completed => "completed",
+        ExecutionStatus::Stopped => "stopped",
+        ExecutionStatus::Error => "error",
+    }
+    .to_string()
+}
+
+/// Resolve every target of a flow without clicking, typing, raising windows or
+/// waiting. Returns per-block evidence; this is the GUI counterpart of
+/// `vadctl run --dry-run`.
+#[tauri::command]
+pub async fn dry_run_flow(
+    execution_state: State<'_, ExecutionState>,
+    flow_state: State<'_, FlowState>,
+    image_library_state: State<'_, ImageLibraryState>,
+    flow_id: String,
+) -> Result<DryRunResponse> {
+    {
+        let status = execution_state.status.lock().await;
+        if status.is_active() {
+            return Err(AppError::ExecutionFailed(
+                "Another flow is already running. Stop it before a dry run.".to_string(),
+            ));
+        }
+    }
+
+    let flow_id = parse_flow_id(&flow_id)?;
+    let flow = {
+        let mut manager = flow_state
+            .manager
+            .lock()
+            .map_err(|e| AppError::InternalError(format!("Failed to lock flow manager: {e}")))?;
+        manager.load_flow(&flow_id)?
+    };
+    let image_library: HashMap<ImageId, ImageMetadata> = {
+        let manager = image_library_state
+            .manager
+            .lock()
+            .map_err(|e| AppError::InternalError(format!("Failed to lock image library: {e}")))?;
+        manager
+            .list_images()?
+            .into_iter()
+            .map(|metadata| (metadata.id.clone(), metadata))
+            .collect()
+    };
+    let images_dir = execution_state
+        .app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::InternalError(format!("Failed to get app data dir: {e}")))?
+        .join("images");
+
+    let sink = Arc::new(DryRunSink {
+        steps: Arc::new(std::sync::Mutex::new(Vec::new())),
+    });
+    let executor_sink: SharedEventSink = sink.clone();
+    let mut executor = Executor::new(flow, executor_sink, images_dir);
+    executor.set_image_library(image_library);
+    executor.set_dry_run(true);
+    executor.set_retry_limit(0);
+
+    // 试跑同样要截屏找目标，窗口不挪开就会挡住靶点。
+    let run_window = execution_state.app_handle.get_webview_window("main");
+    if let Some(window) = run_window.as_ref() {
+        let _ = window.minimize();
+    }
+    let result = executor.start().await;
+    let status = executor.status().await;
+    if let Some(window) = run_window.as_ref() {
+        let _ = window.unminimize();
+        let _ = window.show();
+    }
+    let steps = sink
+        .steps
+        .lock()
+        .map(|steps| steps.clone())
+        .unwrap_or_default();
+
+    Ok(DryRunResponse {
+        ok: result.is_ok() && steps.iter().all(|step| step.ok),
+        status: dry_run_status_name(status),
+        error: result.err().map(|e| e.to_string()),
+        steps,
+    })
+}
+
 fn parse_flow_id(id: &str) -> Result<FlowId> {
     uuid::Uuid::parse_str(id)
         .map(FlowId)
@@ -525,6 +726,45 @@ mod tests {
         let result = parse_flow_id("not-a-uuid");
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), AppError::FlowNotFound(_)));
+    }
+
+    #[test]
+    fn dry_run_sink_records_success_and_failure() {
+        use crate::core::execution::{BlockEvidence, HitRect};
+        use crate::models::BlockId;
+
+        let sink = DryRunSink {
+            steps: Arc::new(std::sync::Mutex::new(Vec::new())),
+        };
+        let ok_id = BlockId::new();
+        let fail_id = BlockId::new();
+        sink.emit(&ExecutionEvent::block_completed_with(
+            ok_id.clone(),
+            true,
+            12,
+            1,
+            Some(BlockEvidence {
+                score: Some(0.91),
+                hit_rect: Some(HitRect::new(-10, 20, 30, 40)),
+                target: Some("button.png".to_string()),
+            }),
+        ));
+        sink.emit(&ExecutionEvent::block_error_with(
+            fail_id.clone(),
+            "not found".to_string(),
+            7,
+            1,
+            None,
+        ));
+
+        let steps = sink.steps.lock().unwrap();
+        assert_eq!(steps.len(), 2);
+        assert!(steps[0].ok);
+        assert_eq!(steps[0].block_id, ok_id.to_string());
+        assert_eq!(steps[0].score, Some(0.91));
+        assert_eq!(steps[0].hit_rect.map(|r| r.x), Some(-10));
+        assert!(!steps[1].ok);
+        assert_eq!(steps[1].error.as_deref(), Some("not found"));
     }
 
     #[test]

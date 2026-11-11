@@ -7,7 +7,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import type { ImageMetadata } from '../types/image';
+import type { ImageMetadata, ScreenRect } from '../types/image';
 import type { Flow, FlowMetadata } from '../types/flow';
 import type { BlockId } from '../types/block';
 
@@ -157,6 +157,42 @@ export async function renameImage(id: ImageId, newName: string): Promise<void> {
  */
 export async function listImages(): Promise<ImageMetadata[]> {
   return invoke<ImageMetadata[]>('list_images');
+}
+
+/**
+ * 设置图片的屏幕 ROI（截取位置）；传 null 表示清除。
+ */
+export async function setImageRoi(id: string, roi: ScreenRect | null): Promise<boolean> {
+  return invoke<boolean>('set_image_roi', { id, roi });
+}
+
+/**
+ * 清空图片库（删除所有图片文件，不可恢复）。
+ */
+export async function clearImageLibrary(): Promise<number> {
+  return invoke<number>('clear_image_library');
+}
+
+/** 虚拟桌面边界（物理像素），用于图片库里画出 ROI 的相对位置。 */
+export interface DesktopBounds {
+  originX: number;
+  originY: number;
+  width: number;
+  height: number;
+}
+
+export async function getDesktopBounds(): Promise<DesktopBounds> {
+  return invoke<DesktopBounds>('get_desktop_bounds');
+}
+
+/**
+ * 取图片缩略图的 data URL。
+ *
+ * WebView 读不到图片库目录，`<img src="文件名">` 一定 404——这就是之前
+ * 选择器里一片空白的根因。
+ */
+export async function getImageThumbnail(id: string, maxSize = 320): Promise<string> {
+  return invoke<string>('get_image_thumbnail', { id, maxSize });
 }
 
 /**
@@ -310,3 +346,200 @@ interface ValidationError {
 }
 
 type ValidationWarning = ValidationError;
+
+// ============================================================================
+// 目标测试（只读解析，不点击）
+// ============================================================================
+
+export interface TargetPoint {
+  x: number;
+  y: number;
+}
+
+export interface TargetRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ImageTargetTest {
+  found: boolean;
+  score?: number;
+  threshold: number;
+  center?: TargetPoint;
+  hitRect?: TargetRect;
+  /** 实际搜索的屏幕区域（ROI 裁剪后）；为空表示搜索整个桌面。 */
+  searchedRegion?: TargetRect;
+  elapsedMs: number;
+  target: string;
+  error?: string;
+}
+
+export interface UiaNodeInfo {
+  name: string;
+  automationId: string;
+  className: string;
+  controlType: number;
+  controlTypeName: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  enabled: boolean;
+  offscreen: boolean;
+  depth: number;
+}
+
+export interface UiaTargetTest {
+  found: boolean;
+  node?: UiaNodeInfo;
+  occludedBy?: string;
+  error?: string;
+}
+
+/** 只读解析图片目标：截取虚拟桌面并做模板匹配。 */
+export async function testImageTarget(
+  imageId: string,
+  threshold?: number,
+  roi?: { x: number; y: number; width: number; height: number },
+): Promise<ImageTargetTest> {
+  return invoke<ImageTargetTest>('test_image_target', { imageId, threshold, roi });
+}
+
+/** 只读解析 UIA 控件：不提升窗口、不点击。 */
+export async function testUiaTarget(params: {
+  window: string;
+  name?: string;
+  automationId?: string;
+  className?: string;
+  controlType?: string;
+  index?: number;
+}): Promise<UiaTargetTest> {
+  return invoke<UiaTargetTest>('test_uia_target', params);
+}
+
+// ============================================================================
+// 屏幕截取（图像选择器）
+// ============================================================================
+
+export interface ScreenPreview {
+  data: string;
+  width: number;
+  height: number;
+  previewWidth: number;
+  previewHeight: number;
+  originX: number;
+  originY: number;
+  scale: number;
+}
+
+export interface ScreenRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ScreenPoint {
+  x: number;
+  y: number;
+}
+
+export interface CapturedImage {
+  image: ImageMetadata;
+  roi: ScreenRegion;
+  center: ScreenPoint;
+}
+
+/** 截取虚拟桌面，返回可直接显示的 PNG（可缩放预览）。 */
+export async function captureScreenPreview(maxWidth?: number): Promise<ScreenPreview> {
+  return invoke<ScreenPreview>('capture_screen_preview', { maxWidth });
+}
+
+/** 从当前屏幕裁剪区域并加入图片库，返回图片元数据 + 屏幕 ROI/中心点。 */
+export async function addImageFromScreenRegion(params: {
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): Promise<CapturedImage> {
+  return invoke<CapturedImage>('add_image_from_screen_region', params);
+}
+
+// ----------------------------------------------------------------------------
+// 全屏截取窗口
+//
+// open_screen_capture 冻结整个虚拟桌面并打开一个覆盖全屏、置顶的无边框窗口；
+// 用户在窗口里直接框选，保存时从同一张冻结图上裁剪，避免把遮罩截进去。
+// ----------------------------------------------------------------------------
+
+/** 冻结桌面并打开全屏框选窗口；主窗口会被隐藏，取消/保存后自动恢复。 */
+export async function openScreenCapture(): Promise<void> {
+  return invoke('open_screen_capture');
+}
+
+/** 框选窗口在冻结图渲染完成后调用，避免闪白。 */
+export async function showScreenCaptureWindow(): Promise<void> {
+  return invoke('show_screen_capture_window');
+}
+
+/** 获取冻结桌面的预览（可缩放）；坐标尺寸为虚拟桌面物理像素。 */
+export async function getScreenCapturePreview(maxWidth?: number): Promise<ScreenPreview> {
+  return invoke<ScreenPreview>('get_screen_capture_preview', { maxWidth });
+}
+
+/** 从冻结桌面裁剪并保存到图片库；x/y/width/height 以冻结图左上角为原点。 */
+export async function saveScreenCapture(params: {
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): Promise<CapturedImage> {
+  return invoke<CapturedImage>('save_screen_capture', params);
+}
+
+/** 放弃本次截取，关闭框选窗口并恢复主窗口。 */
+export async function cancelScreenCapture(): Promise<void> {
+  return invoke('cancel_screen_capture');
+}
+
+/** 监听「截取已保存」事件（主窗口用它刷新图片库并选中新图）。 */
+export async function onScreenCaptureSaved(
+  callback: (captured: CapturedImage) => void,
+): Promise<() => void> {
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen<CapturedImage>('screen-capture-saved', (event) => {
+    callback(event.payload);
+  });
+}
+
+/** 用当前冻结桌面的一块区域原地重裁已有图片（保持 id/名称）。 */
+export async function replaceImageFromScreen(params: {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  roi?: ScreenRect | null;
+}): Promise<CapturedImage> {
+  return invoke<CapturedImage>('replace_image_from_screen', params);
+}
+
+/** 主窗口已被切成全屏框选层：前端挂载 CaptureOverlay。 */
+export async function onScreenCaptureOpened(callback: () => void): Promise<() => void> {
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen('screen-capture-opened', () => {
+    callback();
+  });
+}
+
+/** 框选结束（保存或取消）：前端卸载 CaptureOverlay。 */
+export async function onScreenCaptureClosed(callback: () => void): Promise<() => void> {
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen('screen-capture-closed', () => {
+    callback();
+  });
+}

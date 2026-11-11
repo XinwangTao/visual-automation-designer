@@ -20,6 +20,13 @@ import {
   getFileName,
 } from '../tauri/commands';
 
+
+/** 图片库内容变化时通知外层（工具栏角标等）刷新。 */
+function notifyLibraryChanged(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event('vad:image-library-changed'));
+}
+
 export interface UseImageLibraryReturn {
   images: ImageMetadata[];
   loading: boolean;
@@ -77,6 +84,7 @@ export function useImageLibrary(): UseImageLibraryReturn {
       const defaultName = getFileName(filePath);
       const metadata = await tauriAddImage(filePath, defaultName);
       setImages((prev) => [...prev, metadata]);
+      notifyLibraryChanged();
       return metadata;
     });
   }, []);
@@ -133,6 +141,7 @@ export function useImageLibrary(): UseImageLibraryReturn {
       const imageName = name || getFileName(filePath);
       const metadata = await tauriAddImage(filePath, imageName);
       setImages((prev) => [...prev, metadata]);
+      notifyLibraryChanged();
       return metadata;
     });
   }, []);
@@ -160,6 +169,7 @@ export function useImageLibrary(): UseImageLibraryReturn {
           const defaultName = `pasted_image_${Date.now()}`;
           const metadata = await tauriAddImageFromBase64(base64Data, defaultName);
           setImages((prev) => [...prev, metadata]);
+          notifyLibraryChanged();
           return metadata;
         }
       }
@@ -175,6 +185,7 @@ export function useImageLibrary(): UseImageLibraryReturn {
   const deleteImage = useCallback(async (id: string): Promise<void> => {
     return withOperation(async () => {
       await tauriRemoveImage(id);
+      notifyLibraryChanged();
       setImages((prev) => prev.filter((img) => img.id !== id));
     });
   }, []);
@@ -185,6 +196,7 @@ export function useImageLibrary(): UseImageLibraryReturn {
   const renameImage = useCallback(async (id: string, newName: string): Promise<void> => {
     return withOperation(async () => {
       await tauriRenameImage(id, newName);
+      notifyLibraryChanged();
       setImages((prev) =>
         prev.map((img) => (img.id === id ? { ...img, name: newName } : img))
       );

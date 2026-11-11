@@ -28,7 +28,7 @@ export function Toolbox({ onBlockSelect, onArmPlacement, pendingPlacementLabel, 
   return (
     <div className={styles.toolbox} data-testid="toolbox">
       <div className={styles.toolboxHeader}>
-        <h3>🧩 积木块</h3>
+        <h3>积木块</h3>
         <span className={styles.toolboxSubtitle}>拖拽或点击添加到白板</span>
       </div>
       
@@ -36,7 +36,7 @@ export function Toolbox({ onBlockSelect, onArmPlacement, pendingPlacementLabel, 
       <div className={styles.toolboxSearch}>
         <input
           type="text"
-          placeholder="🔍 搜索积木块..."
+          placeholder="搜索积木块"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className={styles.toolboxSearchInput}
@@ -58,7 +58,7 @@ export function Toolbox({ onBlockSelect, onArmPlacement, pendingPlacementLabel, 
             className={styles.toolboxSectionHeader}
             onClick={() => setShowActions(!showActions)}
           >
-            <h4 className={styles.toolboxSectionTitle}>⚡ 动作</h4>
+            <h4 className={styles.toolboxSectionTitle}>动作</h4>
             <span className={styles.toolboxSectionToggle}>
               {showActions ? '▼' : '▶'}
             </span>
@@ -78,7 +78,7 @@ export function Toolbox({ onBlockSelect, onArmPlacement, pendingPlacementLabel, 
             className={styles.toolboxSectionHeader}
             onClick={() => setShowControls(!showControls)}
           >
-            <h4 className={styles.toolboxSectionTitle}>🔄 控制</h4>
+            <h4 className={styles.toolboxSectionTitle}>控制</h4>
             <span className={styles.toolboxSectionToggle}>
               {showControls ? '▼' : '▶'}
             </span>
@@ -95,7 +95,7 @@ export function Toolbox({ onBlockSelect, onArmPlacement, pendingPlacementLabel, 
       
       {/* UX优化22: 添加提示信息 */}
       <div className={styles.toolboxFooter}>
-        <p className={styles.toolboxTip}>💡 提示：右键画布可快速添加</p>
+        <p className={styles.toolboxTip}>提示：右键画布可快速添加</p>
         <p className={`${styles.toolboxTip} ${styles.toolboxTipAccent}`}>单击会优先添加到当前视口中心</p>
         {pendingPlacementLabel && (
           <button className={styles.toolboxPlacementBanner} type="button" onClick={onCancelPlacement}>

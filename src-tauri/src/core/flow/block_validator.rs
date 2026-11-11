@@ -156,7 +156,7 @@ pub(super) fn check_image_references(
     for (block_id, block) in &flow.blocks {
         match &block.config {
             BlockConfig::Click { mode, .. } => {
-                if let crate::models::block::ClickMode::Image { image_id } = mode {
+                if let crate::models::block::ClickMode::Image { image_id, .. } = mode {
                     if let Some(image_id) = image_id {
                         if image_id.0.is_nil() {
                             errors.push(
@@ -167,6 +167,42 @@ pub(super) fn check_image_references(
                                 .with_block(block_id.clone()),
                             );
                         }
+                    }
+                }
+                if let crate::models::block::ClickMode::Uia {
+                    window,
+                    name,
+                    automation_id,
+                    class_name,
+                    control_type,
+                    ..
+                } = mode
+                {
+                    if window.trim().is_empty() {
+                        errors.push(
+                            ValidationError::error(
+                                "UIA_WINDOW_REQUIRED",
+                                "UIA 点击必须填写窗口标题".to_string(),
+                            )
+                            .with_block(block_id.clone()),
+                        );
+                    }
+                    let selector_empty = |value: &Option<String>| {
+                        value.as_deref().map(str::trim).unwrap_or("").is_empty()
+                    };
+                    if selector_empty(name)
+                        && selector_empty(automation_id)
+                        && selector_empty(class_name)
+                        && selector_empty(control_type)
+                    {
+                        errors.push(
+                            ValidationError::error(
+                                "UIA_SELECTOR_REQUIRED",
+                                "UIA 点击至少需要一个选择条件（名称 / AutomationId / 类名 / 控件类型）"
+                                    .to_string(),
+                            )
+                            .with_block(block_id.clone()),
+                        );
                     }
                 }
             }
@@ -275,6 +311,7 @@ mod tests {
             image_id: None,
             timeout_ms: Some(50),
             threshold: None,
+            roi: None,
         };
         let errors = validate_block_config(&validator, &block_id, &config);
         assert_eq!(errors.len(), 1);
@@ -290,6 +327,7 @@ mod tests {
             image_id: None,
             timeout_ms: Some(100000),
             threshold: None,
+            roi: None,
         };
         let errors = validate_block_config(&validator, &block_id, &config);
         assert_eq!(errors.len(), 1);
@@ -304,6 +342,7 @@ mod tests {
             image_id: None,
             timeout_ms: Some(5000),
             threshold: None,
+            roi: None,
         };
         let errors = validate_block_config(&validator, &block_id, &config);
         assert!(errors.is_empty());
@@ -317,6 +356,7 @@ mod tests {
             image_id: None,
             timeout_ms: None,
             threshold: None,
+            roi: None,
         };
         let errors = validate_block_config(&validator, &block_id, &config);
         assert!(errors.is_empty());
@@ -457,9 +497,7 @@ mod tests {
             },
             crate::models::block::BlockPosition::new(0.0, 0.0),
             BlockConfig::Click {
-                mode: ClickMode::Image {
-                    image_id: Some(crate::models::image::ImageId(uuid::Uuid::nil())),
-                },
+                mode: ClickMode::Image { image_id: Some(crate::models::image::ImageId(uuid::Uuid::nil())), threshold: None, roi: None, fallback_click: None, button: None },
                 count: 1,
             },
         );
@@ -484,6 +522,7 @@ mod tests {
                 image_id: Some(crate::models::image::ImageId(uuid::Uuid::nil())),
                 timeout_ms: Some(5000),
                 threshold: None,
+                roi: None,
             },
         );
         flow.add_block(block);
@@ -527,9 +566,7 @@ mod tests {
             },
             crate::models::block::BlockPosition::new(0.0, 0.0),
             BlockConfig::Click {
-                mode: ClickMode::Image {
-                    image_id: Some(crate::models::image::ImageId::new()),
-                },
+                mode: ClickMode::Image { image_id: Some(crate::models::image::ImageId::new()), threshold: None, roi: None, fallback_click: None, button: None },
                 count: 1,
             },
         );
@@ -549,7 +586,7 @@ mod tests {
             },
             crate::models::block::BlockPosition::new(0.0, 0.0),
             BlockConfig::Click {
-                mode: ClickMode::Image { image_id: None },
+                mode: ClickMode::Image { image_id: None, threshold: None, roi: None, fallback_click: None, button: None },
                 count: 1,
             },
         );
@@ -575,4 +612,32 @@ mod tests {
         let errors = check_image_references(&validator, &flow);
         assert!(errors.is_empty());
     }
+    #[test]
+    fn uia_click_requires_window_and_selector() {
+        use crate::models::block::{ActionType, BlockNode, BlockPosition, BlockType};
+
+        let validator = FlowValidator::new();
+        let mut flow = Flow::new("uia".to_string());
+        let block = BlockNode::new(
+            BlockType::Action { action: ActionType::Click },
+            BlockPosition::new(0.0, 0.0),
+            BlockConfig::Click {
+                mode: ClickMode::Uia {
+                    window: "Notepad".to_string(),
+                    name: None,
+                    automation_id: None,
+                    class_name: None,
+                    control_type: None,
+                    index: None,
+                    force: None,
+                },
+                count: 1,
+            },
+        );
+        flow.add_block(block);
+
+        let errors = validator.validate(&flow);
+        assert!(errors.iter().any(|e| e.code == "UIA_SELECTOR_REQUIRED"));
+    }
+
 }

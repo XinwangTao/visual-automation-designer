@@ -36,11 +36,43 @@ export interface BlockPosition {
 }
 
 /**
+ * 虚拟屏幕物理像素矩形（截图/ROI）
+ */
+export interface Region {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
  * 点击模式
+ *
+ * coordinates 使用虚拟桌面物理像素，允许负坐标（副屏在主屏左侧/上方）。
+ * uia 通过 Windows UI Automation 定位控件；执行前会提窗、重读矩形并校验遮挡。
  */
 export type ClickMode =
   | { mode: 'coordinates'; x: number; y: number }
-  | { mode: 'image'; imageId?: string };
+  | {
+      mode: 'image';
+      imageId?: string;
+      threshold?: number;
+      roi?: Region;
+      /** 识别失败时退回中心坐标点击 */
+      fallbackClick?: boolean;
+      /** 鼠标按键，默认 left */
+      button?: 'left' | 'right' | 'middle';
+    }
+  | {
+      mode: 'uia';
+      window: string;
+      name?: string;
+      automationId?: string;
+      className?: string;
+      controlType?: string;
+      index?: number;
+      force?: boolean;
+    };
 
 /**
  * 条件操作
@@ -60,6 +92,8 @@ export type BlockConfig =
       type: 'wait_image';
       imageId?: string;
       timeoutMs?: number;
+      threshold?: number;
+      roi?: Region;
     }
   | {
       type: 'wait_time';

@@ -129,6 +129,7 @@ export function BlockConfig({
           type: 'wait_image',
           imageId: localConfig.imageId as string,
           timeoutMs: (localConfig.timeoutMs as number) ?? 5000,
+          threshold: (localConfig.threshold as number) ?? 0.7,
         };
         break;
       case 'wait_time':
@@ -210,6 +211,19 @@ export function BlockConfig({
           );
         }
         if (mode.mode === 'image') return !!(mode as { imageId: string }).imageId;
+        if (mode.mode === 'uia') {
+          const uia = mode as {
+            window?: string;
+            name?: string;
+            automationId?: string;
+            className?: string;
+            controlType?: string;
+          };
+          return (
+            !!uia.window?.trim() &&
+            !!(uia.name?.trim() || uia.automationId?.trim() || uia.className?.trim() || uia.controlType?.trim())
+          );
+        }
         return false;
       }
       case 'wait_image':
@@ -266,9 +280,20 @@ export function BlockConfig({
       <div className={styles.blockConfigHeader}>
         <div className={styles.blockConfigHeaderMain}>
           <h3>配置积木块</h3>
-          <span className={styles.blockConfigMeta}>ID: {blockId.slice(0, 8)}</span>
+          <span className={styles.blockConfigMeta}>
+            {getBlockTypeName(blockType)} · #{blockId.slice(0, 8)}
+          </span>
         </div>
         <span className={`block-config__type ${styles.blockConfigType}`}>{getBlockTypeName(blockType)}</span>
+      </div>
+
+      {/* 状态条：脏标记 + 校验状态。取代原来整条黄色横幅和三张信息卡 */}
+      <div className={styles.blockConfigStatusRow} data-testid="block-config-status">
+        <span className={`${styles.blockConfigStatusDot} ${hasChanges ? styles.blockConfigStatusDotWarn : styles.blockConfigStatusDotOk}`} />
+        <span>{hasChanges ? '有未保存的更改' : '已保存'}</span>
+        <span className={styles.blockConfigStatusSep} aria-hidden="true" />
+        <span className={`${styles.blockConfigStatusDot} ${isValid ? styles.blockConfigStatusDotOk : styles.blockConfigStatusDotBad}`} />
+        <span>{isValid ? '校验通过' : '校验待完善'}</span>
       </div>
 
       {externalValidationMessage && (
@@ -280,23 +305,7 @@ export function BlockConfig({
         </div>
       )}
 
-      {hasChanges && <div className={styles.blockConfigChangesIndicator}>有未保存的更改</div>}
-
       <div className={styles.blockConfigContent}>
-        <div className={styles.blockConfigSummary}>
-          <span className={styles.blockConfigSummaryLabel}>当前类型</span>
-          <span className={styles.blockConfigSummaryValue}>{getBlockTypeName(blockType)}积木块</span>
-        </div>
-        <div className={styles.blockConfigSummaryGrid}>
-          <div className={styles.blockConfigSummaryCard}>
-            <span className={styles.blockConfigSummaryCardLabel}>状态</span>
-            <span className={styles.blockConfigSummaryCardValue}>{hasChanges ? '待保存' : '已同步'}</span>
-          </div>
-          <div className={styles.blockConfigSummaryCard}>
-            <span className={styles.blockConfigSummaryCardLabel}>校验</span>
-            <span className={styles.blockConfigSummaryCardValue}>{isValid ? '通过' : '待完善'}</span>
-          </div>
-        </div>
         <BlockSpecificConfig blockType={blockType} config={localConfig} onChange={handleConfigChange} />
       </div>
 
@@ -307,10 +316,10 @@ export function BlockConfig({
           disabled={!isValid}
           data-testid="btn-save-config"
         >
-          ✓ 保存
+          保存
         </button>
         <button className={styles.blockConfigBtn} onClick={handleCancel} data-testid="btn-cancel-config">
-          ✕ 取消
+          取消
         </button>
       </div>
 

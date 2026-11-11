@@ -434,23 +434,27 @@ export const FlowCanvas = memo(function FlowCanvas({
           snapToGrid={true}
           snapGrid={[20, 20]}
           fitView
+          fitViewOptions={{ maxZoom: 1.15, padding: 0.18 }}
           attributionPosition="bottom-right"
         >
           <Controls />
-          <MiniMap
-            nodeColor={getNodeColor}
-            nodeStrokeWidth={3}
-            zoomable
-            pannable
-            position="bottom-right"
-            style={{
-              backgroundColor: 'var(--color-bg-elevated, var(--color-bg-primary))',
-              border: '1px solid var(--color-border)',
-              borderRadius: '8px',
-              boxShadow: 'var(--shadow-md)',
-            }}
-            maskColor="rgba(0, 0, 0, 0.16)"
-          />
+          {(
+            <MiniMap
+              nodeColor={getNodeColor}
+              nodeStrokeWidth={2}
+              zoomable
+              pannable
+              position="bottom-right"
+              style={{
+                backgroundColor: 'color-mix(in srgb, var(--color-bg-primary) 82%, transparent)',
+                border: '1px solid var(--color-border)',
+                borderRadius: '12px',
+                boxShadow: 'var(--shadow-sm)',
+                display: nodes.length > 1 ? undefined : 'none',
+              }}
+              maskColor="rgba(0, 0, 0, 0.10)"
+            />
+          )}
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
           <Panel position="top-left">
             <div className={styles.flowCanvasHint}>{getPlacementHintMessage(pendingPlacement)}</div>

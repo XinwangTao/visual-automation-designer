@@ -9,4 +9,4 @@ mod library;
 mod metadata;
 
 pub use library::ImageLibraryManager;
-pub use metadata::compute_image_hash;
+pub use metadata::{compute_content_hash, compute_image_hash};

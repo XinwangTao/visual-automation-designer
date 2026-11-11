@@ -90,6 +90,14 @@ pub struct ImageMetadata {
     pub created_at: DateTime<Utc>,
     /// Perceptual hash for deduplication
     pub hash: String,
+    /// 截取时在虚拟桌面上的位置（物理像素）。作为 ROI 默认值，也用于
+    /// 图片库里的可视化编辑；老数据没有这个字段，反序列化为 None。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roi: Option<crate::models::block::Region>,
+    /// 图片内容是从屏幕上哪块区域裁出来的。和 `roi`（搜索区域）分开存：
+    /// 用户可以在屏幕上分别拖动这两个框。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<crate::models::block::Region>,
 }
 
 impl ImageMetadata {
@@ -111,6 +119,8 @@ impl ImageMetadata {
             format,
             created_at: Utc::now(),
             hash,
+            roi: None,
+            source: None,
         }
     }
 
@@ -134,7 +144,19 @@ impl ImageMetadata {
             format,
             created_at,
             hash,
+            roi: None,
+            source: None,
         }
+    }
+
+    /// 记录/清除图片内容的来源区域（重裁时更新）。
+    pub fn set_source(&mut self, source: Option<crate::models::block::Region>) {
+        self.source = source;
+    }
+
+    /// Attach (or clear) the screen region this image was captured from.
+    pub fn set_roi(&mut self, roi: Option<crate::models::block::Region>) {
+        self.roi = roi;
     }
 
     /// Rename the image
@@ -196,6 +218,12 @@ impl ImageLibrary {
         self.images.iter_mut().find(|img| img.id == *id)
     }
 
+    /// Drop every entry. Files are deleted by the manager, not here.
+    pub fn clear(&mut self) {
+        self.images.clear();
+        self.total_size_bytes = 0;
+    }
+
     /// List all images
     pub fn list_images(&self) -> &[ImageMetadata] {
         &self.images
@@ -209,6 +237,11 @@ impl ImageLibrary {
     /// Check if an image with the given hash exists (for deduplication)
     pub fn has_duplicate(&self, hash: &str) -> bool {
         self.images.iter().any(|img| img.hash == hash)
+    }
+
+    /// Find the stored image with the given hash, if any.
+    pub fn find_by_hash(&self, hash: &str) -> Option<&ImageMetadata> {
+        self.images.iter().find(|img| img.hash == hash)
     }
 
     /// Find images by name (partial match, case-insensitive)

@@ -35,6 +35,18 @@ export interface ImageMetadata {
   createdAt: string;
   /** 图片哈希（用于去重） */
   hash: string;
+  /** 搜索 ROI（物理像素）；块没设 ROI 时回落到这里 */
+  roi?: ScreenRect;
+  /** 图片内容是从屏幕哪块区域裁出来的（和 ROI 分开，可各自拖动） */
+  source?: ScreenRect;
+}
+
+/** 虚拟桌面上的矩形（物理像素） */
+export interface ScreenRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 /**

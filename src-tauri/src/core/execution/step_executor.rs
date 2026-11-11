@@ -55,41 +55,70 @@ impl Executor {
                 ctx.increment_blocks_executed();
             }
 
+            // Reset per-block evidence so nested control blocks do not inherit
+            // a child's hit when reporting their own event.
+            self.last_evidence = None;
+            let started = std::time::Instant::now();
+            let attempt = self.current_attempt.max(1);
+
             // Emit block started event
-            self.emit_event(ExecutionEvent::block_started(block_id.clone()))
-                .await?;
+            self.emit_event(ExecutionEvent::block_started_with(
+                block_id.clone(),
+                attempt,
+            ))
+            .await?;
 
             // Execute based on block type
             let result: Result<BlockResult> =
                 self.execute_block_by_type(&block_node).await;
+            let elapsed_ms = started.elapsed().as_millis() as u64;
+
+            // Only action blocks produce target evidence of their own; control
+            // blocks would otherwise report the last child's match.
+            let evidence = match block_node.block_type {
+                BlockType::Action { .. } => self.last_evidence.clone(),
+                BlockType::Control { .. } => None,
+            };
 
             // Emit completion event
             match &result {
                 Ok(BlockResult::Continue) => {
-                    self.emit_event(ExecutionEvent::block_completed(
+                    self.emit_event(ExecutionEvent::block_completed_with(
                         block_id.clone(),
                         true,
+                        elapsed_ms,
+                        attempt,
+                        evidence,
                     ))
                     .await?;
                 }
                 Ok(BlockResult::Error { message }) => {
-                    self.emit_event(ExecutionEvent::block_error(
+                    self.emit_event(ExecutionEvent::block_error_with(
                         block_id.clone(),
                         message.clone(),
+                        elapsed_ms,
+                        attempt,
+                        evidence,
                     ))
                     .await?;
                 }
                 Ok(_) => {
-                    self.emit_event(ExecutionEvent::block_completed(
+                    self.emit_event(ExecutionEvent::block_completed_with(
                         block_id.clone(),
                         true,
+                        elapsed_ms,
+                        attempt,
+                        evidence,
                     ))
                     .await?;
                 }
                 Err(e) => {
-                    self.emit_event(ExecutionEvent::block_error(
+                    self.emit_event(ExecutionEvent::block_error_with(
                         block_id.clone(),
                         e.to_string(),
+                        elapsed_ms,
+                        attempt,
+                        evidence,
                     ))
                     .await?;
                 }
@@ -130,8 +159,9 @@ impl Executor {
                 image_id,
                 timeout_ms,
                 threshold,
+                roi,
             } => {
-                self.execute_wait_image_block(image_id.as_ref(), *timeout_ms, *threshold)
+                self.execute_wait_image_block(image_id.as_ref(), *timeout_ms, *threshold, *roi)
                     .await
             }
             BlockConfig::WaitTime { duration_ms } => {
@@ -264,6 +294,7 @@ impl Executor {
         image_id: Option<&ImageId>,
         timeout_ms: Option<u64>,
         threshold: Option<f64>,
+        roi: Option<crate::models::Region>,
     ) -> Result<BlockResult> {
         let image_id = image_id.ok_or_else(|| {
             AppError::ExecutionFailed(
@@ -275,6 +306,28 @@ impl Executor {
         let start = std::time::Instant::now();
         let mut best_confidence: f64 = 0.0;
         let mut low_accuracy_warned = false;
+
+        // Dry-run: resolve once instead of polling for the full timeout.
+        if self.dry_run {
+            let (found, pos, confidence) = self
+                .find_image_on_screen(image_id, Some(threshold), roi)
+                .await?;
+            if found {
+                self.context
+                    .lock()
+                    .await
+                    .cache_image_match(image_id.clone(), pos);
+                return Ok(BlockResult::Continue);
+            }
+            return Ok(BlockResult::Error {
+                message: format!(
+                    "[dry-run] image {} not found ({:.1}% < {:.0}%)",
+                    image_id,
+                    confidence * 100.0,
+                    threshold * 100.0
+                ),
+            });
+        }
 
         loop {
             // Check stop signal
@@ -313,7 +366,7 @@ impl Executor {
             }
 
             // Try to find image
-            let (found, pos, confidence) = self.find_image_on_screen(image_id, Some(threshold)).await?;
+            let (found, pos, confidence) = self.find_image_on_screen(image_id, Some(threshold), roi).await?;
 
             // Track best confidence across poll attempts
             best_confidence = best_confidence.max(confidence);
@@ -344,6 +397,10 @@ impl Executor {
         &mut self,
         duration_ms: u64,
     ) -> Result<BlockResult> {
+        // Dry-run stays fast: waiting is an action, not a resolution.
+        if self.dry_run {
+            return Ok(BlockResult::Continue);
+        }
         let start = std::time::Instant::now();
         let check_interval = 50.min(duration_ms.max(1));
 
@@ -496,7 +553,7 @@ impl Executor {
                 )
             })?;
             // Find image on screen (condition blocks use default threshold)
-            let (found, _, _) = self.find_image_on_screen(image_id, None).await?;
+            let (found, _, _) = self.find_image_on_screen(image_id, None, None).await?;
 
             // Evaluate condition
             let condition_met = match condition {
@@ -526,6 +583,9 @@ impl Executor {
         _image_id: Option<&ImageId>,
         language: Option<&str>,
     ) -> Result<BlockResult> {
+        if self.dry_run {
+            return Ok(BlockResult::Continue);
+        }
         // Take screenshot of the primary monitor
         let capture = safe_execute(
             || crate::platform::ScreenCapture::new().capture_screen(),
@@ -559,6 +619,10 @@ impl Executor {
         strict_mode: bool,
         region: Option<&serde_json::Value>,
     ) -> Result<BlockResult> {
+        // Dry-run must not write difference heatmaps into the image library.
+        if self.dry_run {
+            return Ok(BlockResult::Continue);
+        }
         let reference_id = image_id.ok_or_else(|| {
             AppError::ExecutionFailed(
                 "ScreenshotAssert block requires a reference image".to_string(),

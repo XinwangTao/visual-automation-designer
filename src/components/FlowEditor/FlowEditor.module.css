@@ -1787,3 +1787,17 @@
   background: rgba(15, 23, 42, 0.18);
 }
 
+
+/* 工具栏按钮角标（图片库数量） */
+.flowToolbarBadge {
+  margin-left: 6px;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-primary, #4c9aff);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  font-weight: 700;
+}

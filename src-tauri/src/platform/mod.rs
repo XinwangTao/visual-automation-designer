@@ -9,6 +9,9 @@
 pub mod screen;
 pub mod input;
 
+#[cfg(windows)]
+pub mod uia;
+
 // Re-export platform types
 pub use screen::{ScreenCapture, CaptureResult, MonitorInfo};
 pub use input::{InputController, MouseButton, KeyModifier};

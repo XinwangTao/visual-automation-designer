@@ -5,6 +5,9 @@
 /// Tauri command handlers
 pub mod commands;
 
+/// Headless CLI used by AI agents and scripts (`vadctl`, `vad-mcp`)
+pub mod cli;
+
 /// Core business logic modules
 pub mod core;
 
@@ -133,11 +136,18 @@ pub fn run() {
             // Initialize execution state
             let execution_state = ExecutionState::new(&app.handle());
             app.manage(execution_state);
+
+            // Frozen-desktop state for the full-screen capture picker
+            app.manage(commands::ScreenCaptureState::default());
             
+            // DevTools no longer auto-opens (it covered the app during UI
+            // checks). Opt in with VAD_OPEN_DEVTOOLS=1.
             #[cfg(debug_assertions)]
             {
-                if let Some(window) = app.get_webview_window("main") {
-                    window.open_devtools();
+                if std::env::var("VAD_OPEN_DEVTOOLS").ok().as_deref() == Some("1") {
+                    if let Some(window) = app.get_webview_window("main") {
+                        window.open_devtools();
+                    }
                 }
             }
             Ok(())
@@ -149,6 +159,10 @@ pub fn run() {
             commands::remove_image,
             commands::rename_image,
             commands::list_images,
+            commands::set_image_roi,
+            commands::clear_image_library,
+            commands::get_image_thumbnail,
+            commands::get_desktop_bounds,
             commands::get_image,
             // Flow management commands
             commands::create_flow,
@@ -180,7 +194,35 @@ pub fn run() {
             commands::resume_execution,
             commands::get_execution_status,
             commands::runtime_self_check,
+            // Read-only target resolution for the config panel
+            commands::test_image_target,
+            commands::test_uia_target,
+            commands::dry_run_flow,
+            commands::capture_screen_preview,
+            commands::add_image_from_screen_region,
+            // Full-screen capture picker
+            commands::open_screen_capture,
+            commands::show_screen_capture_window,
+            commands::get_screen_capture_preview,
+            commands::save_screen_capture,
+            commands::replace_image_from_screen,
+            commands::cancel_screen_capture,
         ])
+        // 截屏遮罩期间窗口没有标题栏，Alt+F4 会把整个 app 关掉；先取消截屏。
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.state::<commands::ScreenCaptureState>().is_capturing() {
+                    api.prevent_close();
+                    let _ = commands::cancel_screen_capture(
+                        window.app_handle().clone(),
+                        window.state::<commands::ScreenCaptureState>(),
+                    );
+                }
+            }
+        })
         .run(tauri::generate_context!());
 
     if let Err(error) = app {

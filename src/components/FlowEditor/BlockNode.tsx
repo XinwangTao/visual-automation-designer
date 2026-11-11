@@ -12,6 +12,7 @@
 import { memo, useMemo, useState } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { getPortDefinitions, type PortSchema } from '../../types/port';
+import { BlockGlyph } from '../common';
 import styles from './FlowEditor.module.css';
 
 // Block types
@@ -62,28 +63,6 @@ function getBlockColor(blockType: string, blockCategory: string): string {
         return 'var(--color-block-ocr-check, #795548)';
       default:
         return 'var(--color-block-control, #2196f3)';
-    }
-  }
-}
-
-function getBlockIcon(blockType: string, blockCategory: string): string {
-  if (blockCategory === 'action') {
-    switch (blockType) {
-      case 'click': return '👆';
-      case 'wait_image': return '🔍';
-      case 'wait_time': return '⏱️';
-      case 'input_text': return '⌨️';
-      case 'text_extract': return '👁️';
-      case 'screenshot_assert': return '📸';
-      default: return '▶️';
-    }
-  } else {
-    switch (blockType) {
-      case 'loop':
-      case 'loop_infinite': return '🔄';
-      case 'condition': return '❓';
-      case 'text_check': return '🔤';
-      default: return '🔀';
     }
   }
 }
@@ -167,11 +146,13 @@ function getFullDescription(blockType: string, label: string, config?: Record<st
 
   if (config) {
     if (blockType === 'click') {
-      const mode = (config as { mode?: { mode: string; x?: number; y?: number; imageId?: string } }).mode;
+      const mode = (config as { mode?: { mode: string; x?: number; y?: number; imageId?: string; window?: string } }).mode;
       if (mode?.mode === 'coordinates') {
         lines.push(`坐标: (${mode.x}, ${mode.y})`);
       } else if (mode?.mode === 'image') {
         lines.push(`图片模式`);
+      } else if (mode?.mode === 'uia') {
+        lines.push(`UIA: ${mode.window || '(未设置窗口)'}`);
       }
       lines.push(`点击次数: ${(config as { count?: number }).count || 1}`);
     } else if (blockType === 'wait_time') {
@@ -322,7 +303,7 @@ function BlockNodeComponent({ data, selected }: NodeProps<BlockNodeData>) {
       )}
 
       <div className={styles.blockNodeHeader} style={{ backgroundColor: `${blockColor}20` }}>
-        <span className={styles.blockNodeIcon}>{getBlockIcon(blockType, blockCategory)}</span>
+        <span className={styles.blockNodeIcon} data-block-type={blockType}><BlockGlyph type={blockType} size={16} /></span>
         <div className={styles.blockNodeTitleStack}>
           <span className={styles.blockNodeEyebrow}>{categoryEyebrow}</span>
           <span className={styles.blockNodeLabel}>{label}</span>

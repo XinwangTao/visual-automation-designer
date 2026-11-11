@@ -6,6 +6,7 @@
  */
 
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import type { Connection } from 'reactflow';
 import './App.css';
@@ -15,13 +16,17 @@ import { FlowCanvas, FlowToolbar } from './components/FlowEditor';
 import { ExecutionLog, executionEventToLogEntry } from './components/ExecutionStatus';
 import { Toolbox } from './components/BlockToolbox';
 import { BlockConfig } from './components/ConfigPanel';
-import { ConfirmDialog, useToast } from './components/common';
+import { CaptureOverlay } from './components/ScreenCapture/CaptureOverlay';
+import { ConfirmDialog, useSpotlight, useToast } from './components/common';
 import { useFlow, useExecution, useKeyboardShortcuts, useTheme, buildCanonicalFlow } from './hooks';
 import { installRuntimeIssueBridge } from './runtimeIssueBridge';
 import { FLOW_TEMPLATES, applyFlowTemplate } from './flowTemplates';
 import type { InternalExecutionEvent } from './hooks/useExecution';
 import type { Flow as TauriFlow, ValidationErrorResponse } from './tauri/flow';
 import { validateFlow } from './tauri/flow';
+import { dryRunFlow } from './tauri/execution';
+import { listImages, onScreenCaptureClosed, onScreenCaptureOpened, onScreenCaptureSaved } from './tauri/commands';
+import { ImageLibraryDrawer } from './components/ImageLibrary/ImageLibraryDrawer';
 import { formatValidationResponse } from './validation/formatValidationMessage';
 import { getConnectionGuardValidation } from './validation/connectionGuards';
 import { isInputElement } from './utils/dom';
@@ -37,7 +42,7 @@ type PendingPlacement = { type: string; category: string };
 const ONBOARDING_DISMISSED_KEY = 'vad-onboarding-dismissed';
 const LOG_COLLAPSED_STORAGE_KEY = 'vad-log-collapsed';
 const LOG_HEIGHT_STORAGE_KEY = 'vad-log-height';
-const DEFAULT_LOG_HEIGHT = 240;
+const DEFAULT_LOG_HEIGHT = 200;
 
 // ── Component ──────────────────────────────────────────────────────
 
@@ -87,6 +92,7 @@ export function AppShell() {
   } = useFlow();
 
   const { showToast } = useToast();
+  const spotlight = useSpotlight();
 
   const {
     status: executionStatus,
@@ -126,6 +132,44 @@ export function AppShell() {
   const [focusedValidationNodeId, setFocusedValidationNodeId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'output' | 'problems'>('output');
   const [frontendRuntimeEvents, setFrontendRuntimeEvents] = useState<InternalExecutionEvent[]>([]);
+  /** 后端把主窗口切成全屏框选层时挂载 CaptureOverlay。 */
+  const [captureOverlayOpen, setCaptureOverlayOpen] = useState(false);
+  const [imageLibraryOpen, setImageLibraryOpen] = useState(false);
+  const [imageCount, setImageCount] = useState(0);
+
+  /** 刷新工具栏角标的图片数量（截取、导入、删除后都要调用）。 */
+  const refreshImageCount = useCallback(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return;
+    void listImages()
+      .then((list) => setImageCount(list.length))
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    refreshImageCount();
+    // 上传/粘贴/删除都发生在配置面板里，用事件通知角标刷新。
+    const onChange = () => refreshImageCount();
+    window.addEventListener('vad:image-library-changed', onChange);
+    return () => window.removeEventListener('vad:image-library-changed', onChange);
+  }, [refreshImageCount]);
+
+  useEffect(() => {
+    // 浏览器预览/单测里没有 Tauri IPC，跳过订阅，避免制造无关的前端异常。
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return;
+    let disposed = false;
+    const disposers: Array<() => void> = [];
+    const keep = (dispose: () => void) => {
+      if (disposed) dispose();
+      else disposers.push(dispose);
+    };
+    void onScreenCaptureOpened(() => setCaptureOverlayOpen(true)).then(keep, () => undefined);
+    void onScreenCaptureClosed(() => setCaptureOverlayOpen(false)).then(keep, () => undefined);
+    void onScreenCaptureSaved(() => refreshImageCount()).then(keep, () => undefined);
+    return () => {
+      disposed = true;
+      disposers.forEach((dispose) => dispose());
+    };
+  }, [refreshImageCount]);
 
   const errorsCount = flowValidationErrors.length;
   const warningsCount = flowValidationWarnings.length;
@@ -531,6 +575,26 @@ export function AppShell() {
     }
   }, [flow, isDirty, resetProgress, saveFlow, showToast, stepExecution, validateBeforeExecution]);
 
+  const handleDryRun = useCallback(async () => {
+    if (!flow) { showToast('warning', '没有可试跑的流程'); return; }
+    try {
+      if (isDirty) await saveFlow();
+      await validateBeforeExecution();
+      showToast('info', '正在试跑：只解析目标，不会点击');
+      const result = await dryRunFlow(flow.id);
+      if (result.ok) {
+        showToast('success', `试跑通过：解析了 ${result.steps.length} 个步骤`);
+      } else {
+        const failed = result.steps.find((step) => !step.ok);
+        const detail = result.error ?? failed?.error ?? '存在未解析的目标';
+        showToast('error', `试跑失败：${detail}`);
+      }
+    } catch (err) {
+      console.error('Failed to dry run flow:', err);
+      showToast('error', '试跑失败');
+    }
+  }, [flow, isDirty, saveFlow, showToast, validateBeforeExecution]);
+
   const handleSave = useCallback(async () => {
     if (!flow) { showToast('warning', '没有可保存的流程'); return; }
     try {
@@ -763,6 +827,7 @@ export function AppShell() {
 
   return (
     <div className="app">
+      <div className="lg-aurora" aria-hidden="true" />
       <FlowToolbar
         canUndo={canUndo}
         canRedo={canRedo}
@@ -779,9 +844,12 @@ export function AppShell() {
         onPause={handlePause}
         onStop={handleStop}
         onStep={handleStep}
+        onDryRun={handleDryRun}
         onNew={openNewFlowDialog}
         onToggleTheme={toggleTheme}
         onHelp={handleShowHelp}
+        onOpenImageLibrary={() => setImageLibraryOpen(true)}
+        imageCount={imageCount}
       />
 
       <div className="app__content">
@@ -859,7 +927,9 @@ export function AppShell() {
                     onClick={handleClearExecutionLog}
                     title="清空日志"
                   >
-                    🗑️
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                      <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.2 4.5l.6 9h6.4l.6-9M6.8 7v4M9.2 7v4" />
+                    </svg>
                   </button>
                 )}
                 <button
@@ -884,7 +954,7 @@ export function AppShell() {
                 data-testid="validation-panel"
                 style={problemsTabStyle}
               >
-                <p className="config-placeholder__hint-title">🩺 流程问题清单</p>
+                <p className="config-placeholder__hint-title">流程问题清单</p>
                 {validationItems.length === 0 ? (
                   <div className="vscode-problems-empty">没有检测到流程问题。</div>
                 ) : (
@@ -929,7 +999,7 @@ export function AppShell() {
           )}
           {error && (
             <div className="error-message">
-              <span className="error-icon">⚠️</span>
+              <span className="error-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M8 2.2 14.4 13H1.6zM8 6v3.4M8 11.2v.2" /></svg></span>
               <span>{error.message}</span>
               <button onClick={() => window.location.reload()} className="error-retry-btn" type="button">重试</button>
             </div>
@@ -946,22 +1016,29 @@ export function AppShell() {
             />
           ) : (
             <div className="config-placeholder">
-              <div className="config-placeholder__icon">🔧</div>
+              <div className="config-placeholder__icon">
+                <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                  <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />
+                  <circle cx="5" cy="4.5" r="1.6" fill="var(--vad-color-surface-elevated)" />
+                  <circle cx="10.5" cy="8" r="1.6" fill="var(--vad-color-surface-elevated)" />
+                  <circle cx="6.5" cy="11.5" r="1.6" fill="var(--vad-color-surface-elevated)" />
+                </svg>
+              </div>
               <h3>积木块配置</h3>
               <p>点击积木块进行配置</p>
               {!flow && (
-                <div className="config-placeholder__hint-box">
-                  <p className="config-placeholder__hint-title">💡 快速开始</p>
+                <div className="config-placeholder__hint-box lg-spotlight" {...spotlight}>
+                  <p className="config-placeholder__hint-title">快速开始</p>
                   <p className="config-placeholder__hint">1. 点击"新建"创建流程</p>
                   <p className="config-placeholder__hint">2. 从左侧拖动积木块到画布</p>
                   <p className="config-placeholder__hint">3. 点击积木块配置参数</p>
                   <p className="config-placeholder__hint">4. 点击"执行"运行流程</p>
                   <div className="config-placeholder__actions">
-                    <button className="config-placeholder__action-btn" type="button" onClick={() => void createQuickFlow()}>
-                      ➕ 立即创建流程
+                    <button className="config-placeholder__action-btn" type="button" aria-label="➕ 立即创建流程" onClick={() => void createQuickFlow()}>
+                      立即创建流程
                     </button>
                     <button className="config-placeholder__action-btn config-placeholder__action-btn--secondary" type="button" onClick={() => handleToolboxSelect('click', 'action')}>
-                      ⚡ 直接放一个点击积木块
+                      直接放一个点击积木块
                     </button>
                   </div>
                 </div>
@@ -1026,7 +1103,7 @@ export function AppShell() {
 
       {showOnboarding && (
         <div className="app__onboarding" role="dialog" aria-modal="true">
-          <div className="app__onboarding-card">
+          <div className="app__onboarding-card lg-spotlight" {...spotlight}>
             <div className="app__onboarding-header">
               <div>
                 <p className="app__onboarding-eyebrow">Visual Automation Designer</p>
@@ -1064,6 +1141,19 @@ export function AppShell() {
         onConfirm={() => void handleCreateFlow()}
         templateId={newFlowTemplateId}
         onTemplateChange={setNewFlowTemplateId}
+      />
+
+      {/* 全屏框选层：挂到 body，避免被侧栏/卡片的 backdrop-filter 变成 fixed 容器 */}
+      {captureOverlayOpen && createPortal(<CaptureOverlay />, document.body)}
+
+      <ImageLibraryDrawer
+        open={imageLibraryOpen}
+        mode="manage"
+        onClose={() => setImageLibraryOpen(false)}
+        onChanged={() => {
+          refreshImageCount();
+          window.dispatchEvent(new Event('vad:image-library-changed'));
+        }}
       />
     </div>
   );

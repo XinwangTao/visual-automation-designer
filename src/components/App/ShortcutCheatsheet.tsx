@@ -14,14 +14,14 @@ export function ShortcutCheatsheet({ isOpen, onClose }: ShortcutCheatsheetProps)
     <div className="shortcut-cheatsheet" onClick={onClose}>
       <div className={styles.shortcutCheatsheetContent} onClick={(e) => e.stopPropagation()}>
         <div className={styles.shortcutCheatsheetHeader}>
-          <h3 className={styles.shortcutCheatsheetTitle}>⌨️ 快捷键速查</h3>
+          <h3 className={styles.shortcutCheatsheetTitle}>快捷键速查</h3>
           <button className={styles.shortcutCheatsheetClose} onClick={onClose} type="button">
             ×
           </button>
         </div>
         <div className={styles.shortcutCheatsheetContent}>
           <div className={styles.shortcutCheatsheetCategory}>
-            <div className={styles.shortcutCheatsheetCategoryTitle}>📁 文件操作</div>
+            <div className={styles.shortcutCheatsheetCategoryTitle}>文件操作</div>
             <div className={styles.shortcutCheatsheetItem}>
               <span>新建流程</span>
               <div className={styles.shortcutCheatsheetKeys}>
@@ -45,7 +45,7 @@ export function ShortcutCheatsheet({ isOpen, onClose }: ShortcutCheatsheetProps)
             </div>
           </div>
           <div className={styles.shortcutCheatsheetCategory}>
-            <div className={styles.shortcutCheatsheetCategoryTitle}>✏️ 编辑操作</div>
+            <div className={styles.shortcutCheatsheetCategoryTitle}>编辑操作</div>
             <div className={styles.shortcutCheatsheetItem}>
               <span>撤销</span>
               <div className={styles.shortcutCheatsheetKeys}>
@@ -68,7 +68,7 @@ export function ShortcutCheatsheet({ isOpen, onClose }: ShortcutCheatsheetProps)
             </div>
           </div>
           <div className={styles.shortcutCheatsheetCategory}>
-            <div className={styles.shortcutCheatsheetCategoryTitle}>▶️ 执行控制</div>
+            <div className={styles.shortcutCheatsheetCategoryTitle}>执行控制</div>
             <div className={styles.shortcutCheatsheetItem}>
               <span>执行/继续</span>
               <div className={styles.shortcutCheatsheetKeys}>
@@ -90,7 +90,7 @@ export function ShortcutCheatsheet({ isOpen, onClose }: ShortcutCheatsheetProps)
             </div>
           </div>
           <div className={styles.shortcutCheatsheetCategory}>
-            <div className={styles.shortcutCheatsheetCategoryTitle}>🔧 其他</div>
+            <div className={styles.shortcutCheatsheetCategoryTitle}>其他</div>
             <div className={styles.shortcutCheatsheetItem}>
               <span>显示快捷键帮助</span>
               <div className={styles.shortcutCheatsheetKeys}>

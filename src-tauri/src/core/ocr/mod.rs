@@ -40,103 +40,94 @@ mod windows_impl {
         BitmapPixelFormat, SoftwareBitmap,
     };
     use windows::Media::Ocr::OcrEngine;
-    use windows::Storage::Streams::InMemoryRandomAccessStream;
 
     /// Internal helper: create a SoftwareBitmap from RGBA pixel data
     /// Uses a memory stream + BitmapEncoder round-trip, which avoids direct
     /// pointer manipulation of the SoftwareBitmap buffer.
     fn rgba_to_software_bitmap(rgba: &[u8], width: i32, height: i32) -> Result<SoftwareBitmap> {
-        // Encode the RGBA data as PNG in memory
-        let mut png_buffer = std::io::Cursor::new(Vec::new());
-        image::write_buffer_with_format(
-            &mut png_buffer,
-            rgba,
-            width as u32,
-            height as u32,
-            image::ColorType::Rgba8,
-            image::ImageFormat::Png,
-        )
-        .map_err(|e| {
-            AppError::ExecutionFailed(format!("Failed to encode OCR image as PNG: {}", e))
+        use windows::Storage::Streams::DataWriter;
+
+        // Copy the RGBA bytes into an IBuffer without a stream round-trip.
+        // The previous PNG/stream path closed the stream before Seek and made
+        // OCR fail with 0x80000013 ("object closed").
+        let writer = DataWriter::new().map_err(|e| {
+            AppError::ExecutionFailed(format!("Failed to create DataWriter: {e}"))
+        })?;
+        writer.WriteBytes(rgba).map_err(|e| {
+            AppError::ExecutionFailed(format!("Failed to write OCR pixels: {e}"))
+        })?;
+        let buffer = writer.DetachBuffer().map_err(|e| {
+            AppError::ExecutionFailed(format!("Failed to detach OCR buffer: {e}"))
         })?;
 
-        let png_bytes = png_buffer.into_inner();
-
-        // Write PNG data to an in-memory stream
-        let stream = InMemoryRandomAccessStream::new().map_err(|e| {
-            AppError::ExecutionFailed(format!("Failed to create in-memory stream: {}", e))
-        })?;
-
-        // Write PNG bytes to the stream
-        {
-            use windows::Storage::Streams::DataWriter;
-            let writer = DataWriter::CreateDataWriter(&stream).map_err(|e| {
-                AppError::ExecutionFailed(format!("Failed to create DataWriter: {}", e))
-            })?;
-
-            writer.WriteBytes(&png_bytes).map_err(|e| {
-                AppError::ExecutionFailed(format!("Failed to write PNG bytes: {}", e))
-            })?;
-
-            writer.StoreAsync().map_err(|e| {
-                AppError::ExecutionFailed(format!("Failed to flush DataWriter: {}", e))
-            })?.get().map_err(|e| {
-                AppError::ExecutionFailed(format!("DataWriter flush failed: {}", e))
-            })?;
-
-            // Flush to ensure all data is written before seeking
-            writer.FlushAsync().map_err(|e| {
-                AppError::ExecutionFailed(format!("Failed to flush DataWriter: {}", e))
-            })?.get().map_err(|e| {
-                AppError::ExecutionFailed(format!("DataWriter flush failed: {}", e))
-            })?;
-        }
-
-        // Seek the stream to beginning
-        stream.Seek(0).map_err(|e| {
-            AppError::ExecutionFailed(format!("Failed to seek stream: {}", e))
-        })?;
-
-        // Decode the PNG stream into a SoftwareBitmap
-        use windows::Graphics::Imaging::BitmapDecoder;
-        let decoder = BitmapDecoder::CreateAsync(&stream).map_err(|e| {
-            AppError::ExecutionFailed(format!("Failed to create BitmapDecoder: {}", e))
-        })?.get().map_err(|e| {
-            AppError::ExecutionFailed(format!("BitmapDecoder async failed: {}", e))
-        })?;
-
-        let software_bitmap = decoder.GetSoftwareBitmapAsync().map_err(|e| {
-            AppError::ExecutionFailed(format!("Failed to get SoftwareBitmap: {}", e))
-        })?.get().map_err(|e| {
-            AppError::ExecutionFailed(format!("GetSoftwareBitmap async failed: {}", e))
-        })?;
-
-        // Convert to Rgba8 if needed (decoder may return Bgra8)
-        let target_format = BitmapPixelFormat::Rgba8;
-        let converted = SoftwareBitmap::Convert(&software_bitmap, target_format)
+        SoftwareBitmap::CreateCopyFromBuffer(&buffer, BitmapPixelFormat::Rgba8, width, height)
             .map_err(|e| {
-                AppError::ExecutionFailed(format!("Failed to convert SoftwareBitmap pixel format: {}", e))
-            })?;
-
-        Ok(converted)
+                AppError::ExecutionFailed(format!("Failed to create OCR SoftwareBitmap: {e}"))
+            })
     }
 
-    /// Internal helper: extract lines from an OCR result
-    fn extract_lines(ocr_result_text: &str) -> Vec<OcrLine> {
-        // Since Windows.Media.Ocr.OcrResult.Lines is an IVectorView
-        // that requires COM iteration, we use a simplified approach:
-        // split the recognized text by newlines and create OcrLine entries
-        // without positional data (the engine handles text recognition).
-        ocr_result_text
-            .lines()
-            .map(|line| OcrLine {
-                text: line.to_string(),
-                x: 0,
-                y: 0,
-                width: 0,
-                height: 0,
-            })
-            .collect()
+    /// Map Editor language tags to BCP-47 tags understood by Windows OCR.
+    fn normalize_language(language: &str) -> String {
+        match language.trim().to_ascii_lowercase().as_str() {
+            "chi_sim" | "chi_sim+eng" | "zh" | "zh_cn" => "zh-Hans-CN".to_string(),
+            "chi_tra" | "zh_tw" => "zh-Hant-TW".to_string(),
+            "eng" | "en" => "en-US".to_string(),
+            "jpn" | "ja" => "ja-JP".to_string(),
+            "kor" | "ko" => "ko-KR".to_string(),
+            other => other.to_string(),
+        }
+    }
+
+    /// Extract lines with bounding boxes from the real OCR result.
+    fn extract_lines(ocr_result: &windows::Media::Ocr::OcrResult) -> Result<Vec<OcrLine>> {
+        let lines = ocr_result
+            .Lines()
+            .map_err(|e| AppError::ExecutionFailed(format!("OCR lines unavailable: {e}")))?;
+        let count = lines
+            .Size()
+            .map_err(|e| AppError::ExecutionFailed(format!("OCR line count failed: {e}")))?;
+        let mut out = Vec::new();
+        for index in 0..count {
+            let line = lines
+                .GetAt(index)
+                .map_err(|e| AppError::ExecutionFailed(format!("OCR line {index}: {e}")))?;
+            let text = line
+                .Text()
+                .map_err(|e| AppError::ExecutionFailed(format!("OCR line text: {e}")))?
+                .to_string();
+            let words = line
+                .Words()
+                .map_err(|e| AppError::ExecutionFailed(format!("OCR words: {e}")))?;
+            let word_count = words
+                .Size()
+                .map_err(|e| AppError::ExecutionFailed(format!("OCR word count: {e}")))?;
+            let (mut min_x, mut min_y) = (f32::MAX, f32::MAX);
+            let (mut max_x, mut max_y) = (f32::MIN, f32::MIN);
+            for word_index in 0..word_count {
+                let word = words.GetAt(word_index).map_err(|e| {
+                    AppError::ExecutionFailed(format!("OCR word {word_index}: {e}"))
+                })?;
+                let rect = word
+                    .BoundingRect()
+                    .map_err(|e| AppError::ExecutionFailed(format!("OCR word rect: {e}")))?;
+                min_x = min_x.min(rect.X);
+                min_y = min_y.min(rect.Y);
+                max_x = max_x.max(rect.X + rect.Width);
+                max_y = max_y.max(rect.Y + rect.Height);
+            }
+            let (x, y, width, height) = if word_count == 0 {
+                (0, 0, 0, 0)
+            } else {
+                (
+                    min_x.max(0.0) as u32,
+                    min_y.max(0.0) as u32,
+                    (max_x - min_x).max(0.0) as u32,
+                    (max_y - min_y).max(0.0) as u32,
+                )
+            };
+            out.push(OcrLine { text, x, y, width, height });
+        }
+        Ok(out)
     }
 
     /// Run OCR using Windows.Media.Ocr
@@ -154,7 +145,8 @@ mod windows_impl {
         // Create OCR engine
         let engine = if let Some(lang) = language {
             // Convert &str to HSTRING for the Windows API
-            let lang_hstring = windows::core::HSTRING::from(lang);
+            let normalized = normalize_language(lang);
+            let lang_hstring = windows::core::HSTRING::from(normalized.as_str());
             let language_obj = windows::Globalization::Language::CreateLanguage(&lang_hstring)
                 .map_err(|e| {
                     AppError::ExecutionFailed(format!(
@@ -173,15 +165,20 @@ mod windows_impl {
                 })?;
 
             if !available {
-                return Err(AppError::ExecutionFailed(format!(
-                    "OCR language '{}' is not available on this system",
-                    lang
-                )));
+                OcrEngine::TryCreateFromUserProfileLanguages().map_err(|e| {
+                    AppError::ExecutionFailed(format!(
+                        "OCR language '{}' is not available and the user profile fallback failed: {}",
+                        normalized, e
+                    ))
+                })?
+            } else {
+                OcrEngine::TryCreateFromLanguage(&language_obj).map_err(|e| {
+                    AppError::ExecutionFailed(format!(
+                        "Failed to create OCR engine for '{}': {}",
+                        normalized, e
+                    ))
+                })?
             }
-
-            OcrEngine::TryCreateFromLanguage(&language_obj).map_err(|e| {
-                AppError::ExecutionFailed(format!("Failed to create OCR engine for '{}': {}", lang, e))
-            })?
         } else {
             // Use user profile languages
             OcrEngine::TryCreateFromUserProfileLanguages().map_err(|e| {
@@ -202,7 +199,7 @@ mod windows_impl {
         })?;
 
         let text = recognized_text.to_string();
-        let lines = extract_lines(&text);
+        let lines = extract_lines(&ocr_result)?;
 
         Ok(OcrResult { text, lines })
     }

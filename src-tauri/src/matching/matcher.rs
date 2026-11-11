@@ -21,6 +21,13 @@ use crate::models::ImageId;
 
 use super::cache::{CacheKey, MatchCache, MatchCacheConfig};
 
+/// Target short side (px) for the downscaled template in the coarse pass.
+const PYRAMID_MIN_TEMPLATE: u32 = 12;
+/// Upper bound on the downscale factor for the coarse pass.
+const PYRAMID_MAX_FACTOR: u32 = 16;
+/// 精修阶段允许的乘加次数（≈ 位置数 × 模板面积）。超过就抽稀扫描。
+const REFINE_OP_BUDGET: f64 = 30_000_000.0;
+
 /// Result of an image match operation
 #[derive(Debug, Clone)]
 pub struct MatchResult {
@@ -139,6 +146,42 @@ impl MatchConfig {
         }
     }
 }
+
+/// Rectangle (image coordinates) limiting a template search.
+///
+/// Coordinates are relative to the captured image's top-left corner, matching
+/// `CaptureResult`. Callers that receive virtual-screen pixels must subtract
+/// the capture origin first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchRegion {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl SearchRegion {
+    pub fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
+        Self { x, y, width, height }
+    }
+
+    /// Clamp to the haystack; returns `None` for a degenerate region.
+    fn clamp_to(self, haystack_width: u32, haystack_height: u32) -> Option<(u32, u32, u32, u32)> {
+        if self.width == 0 || self.height == 0 {
+            return None;
+        }
+        let x = self.x.min(haystack_width);
+        let y = self.y.min(haystack_height);
+        let width = self.width.min(haystack_width.saturating_sub(x));
+        let height = self.height.min(haystack_height.saturating_sub(y));
+        if width == 0 || height == 0 {
+            None
+        } else {
+            Some((x, y, width, height))
+        }
+    }
+}
+
 
 /// Flat grayscale buffer — converts a DynamicImage to a contiguous f64 array
 /// once, eliminating repeated `get_pixel()` calls (which involve dynamic
@@ -370,6 +413,181 @@ impl ImageMatcher {
         }
     }
 
+    /// Find a template within an optional region, bounded by a time budget.
+    ///
+    /// This is the headless/AI-safe variant of [`find_image`]:
+    /// - `region` limits the search (ROI-first; fall back to full screen is the
+    ///   caller's choice).
+    /// - `budget` caps the coarse scan; the best hit found so far is returned
+    ///   even when the budget expires.
+    /// - large templates use a coarse step and a fine refinement around the
+    ///   best position, so a full-desktop search cannot run for minutes.
+    ///
+    /// Returned centers are image coordinates relative to the full haystack.
+    pub fn find_image_bounded(
+        &self,
+        haystack: &DynamicImage,
+        needle: &DynamicImage,
+        region: Option<SearchRegion>,
+        budget: Duration,
+    ) -> MatchResult {
+        let haystack_width = haystack.width();
+        let haystack_height = haystack.height();
+        let needle_width = needle.width();
+        let needle_height = needle.height();
+
+        let (rx, ry, rw, rh) = match region {
+            Some(r) => match r.clamp_to(haystack_width, haystack_height) {
+                Some(v) => v,
+                None => return MatchResult::not_found(),
+            },
+            None => (0, 0, haystack_width, haystack_height),
+        };
+        // 用户把 ROI 框得比模板还小时不能直接判「找不到」：以 ROI 中心为准
+        // 扩到模板尺寸再搜，否则会得到一个永远失败的配置。
+        let (rx, ry, rw, rh) = Self::region_fits_template(
+            (rx, ry, rw, rh),
+            (needle_width, needle_height),
+            (haystack_width, haystack_height),
+        );
+
+        if needle_width > rw || needle_height > rh {
+            return MatchResult::not_found();
+        }
+
+        // Crop the ROI so precomputation (integral image) only covers the
+        // region we actually search. Full-screen searches borrow the original
+        // image instead of copying it.
+        let full_frame = (rx, ry, rw, rh) == (0, 0, haystack_width, haystack_height);
+        let cropped = if full_frame {
+            None
+        } else {
+            Some(haystack.crop_imm(rx, ry, rw, rh))
+        };
+        let region_image = cropped.as_ref().unwrap_or(haystack);
+        let needle_cache = Self::precompute_needle(needle);
+
+        // ── 粗到细 ──────────────────────────────────────────────────
+        // 全屏逐像素扫描是 O(位置 × 模板像素)：2560x1440 配 200x100 模板约 600 亿
+        // 次乘加，既跑不完也付不起「跳着扫」。旧实现直接按步长 6 扫描，真实位置
+        // (700,400) 永远采不到，精修又只在粗搜最优点附近做，结果就是明明一模一样
+        // 却只报 26%。这里先在缩小的图上找候选，再把候选邻域裁出来做全分辨率校验；
+        // 邻域内按预算抽稀（模板越大单点越贵），最后爬山收敛到像素级峰值。
+        let mut near_miss = -2.0f64;
+        let mut pyramid_ran = false;
+        if let Some((seed_x, seed_y, factor)) =
+            self.pyramid_seed(region_image, needle, budget.mul_f64(0.5))
+        {
+            pyramid_ran = true;
+            let margin = factor * 2 + 4;
+            let win_x = seed_x.saturating_sub(margin);
+            let win_y = seed_y.saturating_sub(margin);
+            let win_w = (2 * margin + needle_width).min(region_image.width() - win_x);
+            let win_h = (2 * margin + needle_height).min(region_image.height() - win_y);
+
+            if win_w >= needle_width && win_h >= needle_height {
+                let window = region_image.crop_imm(win_x, win_y, win_w, win_h);
+                let (win_gray, win_sat) = Self::precompute_haystack(&window);
+                let max_x = win_w - needle_width;
+                let max_y = win_h - needle_height;
+
+                // 单次 NCC 的代价正比于模板面积；据此反推可接受的扫描步长。
+                let area = (needle_width as f64 * needle_height as f64).max(1.0);
+                let side = (2 * margin + 1) as f64;
+                let wanted = (REFINE_OP_BUDGET / area).max(9.0).sqrt();
+                let step = ((side / wanted).ceil() as u32).max(1);
+
+                let mut best_x = 0u32;
+                let mut best_y = 0u32;
+                let mut best_score = -2.0f64;
+                for y in (0..=max_y).step_by(step as usize) {
+                    for x in (0..=max_x).step_by(step as usize) {
+                        let score =
+                            self.calculate_ncc_at(&win_gray, &win_sat, &needle_cache, x, y);
+                        if score > best_score {
+                            best_score = score;
+                            best_x = x;
+                            best_y = y;
+                        }
+                    }
+                }
+
+                // 有希望时再爬山到像素级，避免抽稀步长带来的偏移。
+                if best_score >= self.config.threshold * 0.5 {
+                    let (rx2, ry2, rs) = self.refine_peak(
+                        &win_gray,
+                        &win_sat,
+                        &needle_cache,
+                        best_x,
+                        best_y,
+                        max_x,
+                        max_y,
+                        step,
+                    );
+                    best_x = rx2;
+                    best_y = ry2;
+                    best_score = rs;
+                }
+                near_miss = best_score;
+
+                if best_score >= self.config.threshold {
+                    return MatchResult::found(
+                        rx + win_x + best_x + needle_width / 2,
+                        ry + win_y + best_y + needle_height / 2,
+                        best_score,
+                        needle_width,
+                        needle_height,
+                    );
+                }
+            }
+        }
+
+        // 金字塔已经在缩小的整幅图上做过一遍无跳步的全域扫描，候选邻域也用
+        // 全分辨率校验过了。再跑一次旧的「跳步全扫」既不能补回漏检（它同样跳步），
+        // 还会把「没找到」从 1s 拖到 4-20s——而等待目标出现恰恰是最常见的场景。
+        // 小模板（短边 < 32）缩下去只剩不到 12px，区分度不够，可能选错相似候选；
+        // 这类保留一次全量兜底。大模板走兜底只会把「没找到」拖到几十秒。
+        if pyramid_ran && needle_width.min(needle_height) >= 32 {
+            return MatchResult {
+                found: false,
+                confidence: if near_miss > -2.0 { Some(near_miss) } else { None },
+                ..MatchResult::not_found()
+            };
+        }
+
+        let (gray, sat) = Self::precompute_haystack(region_image);
+
+        let deadline = Instant::now() + budget;
+        let (best_x, best_y, best_score, exhausted) = self.template_match_bounded(
+            &gray,
+            &sat,
+            &needle_cache,
+            Some(deadline),
+            true,
+        );
+
+        if exhausted {
+            log::warn!(
+                "Template search budget ({}ms) exhausted; returning best score {:.3}",
+                budget.as_millis(),
+                best_score
+            );
+        }
+
+        if best_score >= self.config.threshold {
+            let center_x = rx + best_x + needle_width / 2;
+            let center_y = ry + best_y + needle_height / 2;
+            MatchResult::found(center_x, center_y, best_score, needle_width, needle_height)
+        } else {
+            MatchResult {
+                found: false,
+                confidence: Some(best_score),
+                ..MatchResult::not_found()
+            }
+        }
+    }
+
+
     /// Find all occurrences of a template image
     ///
     /// # Arguments
@@ -443,6 +661,149 @@ impl ImageMatcher {
         sat: &IntegralImage,
         needle_cache: &NeedleCache,
     ) -> (u32, u32, f64) {
+        let (x, y, score, _) =
+            self.template_match_bounded(gray, sat, needle_cache, None, false);
+        (x, y, score)
+    }
+
+    /// Template matching with optional deadline and coarse-to-fine scan.
+    ///
+    /// Returns `(best_x, best_y, best_score, budget_exhausted)`. When the
+    /// deadline is hit, the best score seen so far is returned (never a
+    /// fabricated match); callers decide whether it clears their threshold.
+    /// Downscale both images and run one full pass on the cheap copy.
+    ///
+    /// Returns the best position scaled back into full-resolution coordinates
+    /// plus the factor that was used, so the caller can size its refinement
+    /// window to the residual error.
+    /// 从抽稀扫描的最优点出发，按逐步减半的步长爬山，收敛到像素级峰值。
+    ///
+    /// NCC 在真实位置附近是光滑的，所以每轮只看 8 个邻居，代价与窗口大小无关
+    /// ——大模板也不会因为「窗口面积 × 模板面积」而爆掉。
+    fn refine_peak(
+        &self,
+        gray: &GrayBuffer,
+        sat: &IntegralImage,
+        needle_cache: &NeedleCache,
+        start_x: u32,
+        start_y: u32,
+        max_x: u32,
+        max_y: u32,
+        step0: u32,
+    ) -> (u32, u32, f64) {
+        let mut best_x = start_x;
+        let mut best_y = start_y;
+        let mut best = self.calculate_ncc_at(gray, sat, needle_cache, best_x, best_y);
+        let mut step = step0.max(1);
+        loop {
+            let mut improved = false;
+            for (dx, dy) in [
+                (-1i32, 0i32),
+                (1, 0),
+                (0, -1),
+                (0, 1),
+                (-1, -1),
+                (1, -1),
+                (-1, 1),
+                (1, 1),
+            ] {
+                let nx = best_x as i64 + dx as i64 * step as i64;
+                let ny = best_y as i64 + dy as i64 * step as i64;
+                if nx < 0 || ny < 0 || nx as u32 > max_x || ny as u32 > max_y {
+                    continue;
+                }
+                let score = self.calculate_ncc_at(gray, sat, needle_cache, nx as u32, ny as u32);
+                if score > best {
+                    best = score;
+                    best_x = nx as u32;
+                    best_y = ny as u32;
+                    improved = true;
+                }
+            }
+            if !improved {
+                if step == 1 {
+                    break;
+                }
+                step = (step / 2).max(1);
+            }
+        }
+        (best_x, best_y, best)
+    }
+
+    fn pyramid_seed(
+        &self,
+        haystack: &DynamicImage,
+        needle: &DynamicImage,
+        budget: Duration,
+    ) -> Option<(u32, u32, u32)> {
+        let (hw, hh) = (haystack.width(), haystack.height());
+        let (nw, nh) = (needle.width(), needle.height());
+        // Small searches are already cheap; below this the downscale would only
+        // cost accuracy.
+        // 16px 起就值得分层：30x30 这类文字条模板走逐像素全扫要几十亿次运算，
+        // 3s 预算只会扫完顶部几行，目标在下面必然漏检。
+        if hw < 800 || hh < 600 || nw < 16 || nh < 16 {
+            return None;
+        }
+
+        // Keep the coarse template around `PYRAMID_MIN_TEMPLATE` px on its
+        // short side: big enough to stay discriminative, small enough that the
+        // scan is cheap.
+        let factor = (nw.min(nh) / PYRAMID_MIN_TEMPLATE).clamp(2, PYRAMID_MAX_FACTOR);
+
+        let sw = (hw / factor).max(1);
+        let sh = (hh / factor).max(1);
+        let snw = (nw / factor).max(1);
+        let snh = (nh / factor).max(1);
+        if snw > sw || snh > sh {
+            return None;
+        }
+
+        let small_haystack =
+            haystack.resize_exact(sw, sh, image::imageops::FilterType::Triangle);
+        let small_needle =
+            needle.resize_exact(snw, snh, image::imageops::FilterType::Triangle);
+        let needle_cache = Self::precompute_needle(&small_needle);
+        let (gray, sat) = Self::precompute_haystack(&small_haystack);
+
+        let deadline = Instant::now() + budget;
+        let (best_x, best_y, _score, exhausted) =
+            self.template_match_bounded(&gray, &sat, &needle_cache, Some(deadline), false);
+        if exhausted && best_x == 0 && best_y == 0 {
+            return None;
+        }
+        Some((best_x * factor, best_y * factor, factor))
+    }
+
+    /// 搜索区域小于模板时，以它的中心为准扩到模板尺寸，并夹在图像范围内。
+    fn region_fits_template(
+        region: (u32, u32, u32, u32),
+        needle: (u32, u32),
+        haystack: (u32, u32),
+    ) -> (u32, u32, u32, u32) {
+        let (rx, ry, rw, rh) = region;
+        let (nw, nh) = needle;
+        let (hw, hh) = haystack;
+        if rw >= nw && rh >= nh {
+            return region;
+        }
+        let w = rw.max(nw).min(hw);
+        let h = rh.max(nh).min(hh);
+        let cx = rx.saturating_add(rw / 2);
+        let cy = ry.saturating_add(rh / 2);
+        let nx = cx.saturating_sub(w / 2).min(hw.saturating_sub(w));
+        let ny = cy.saturating_sub(h / 2).min(hh.saturating_sub(h));
+        (nx, ny, w, h)
+    }
+
+    fn template_match_bounded(
+        &self,
+        gray: &GrayBuffer,
+        sat: &IntegralImage,
+        needle_cache: &NeedleCache,
+        deadline: Option<Instant>,
+        coarse: bool,
+    ) -> (u32, u32, f64, bool) {
         let needle_width = needle_cache.width;
         let needle_height = needle_cache.height;
 
@@ -452,12 +813,26 @@ impl ImageMatcher {
         let mut best_x = 0;
         let mut best_y = 0;
         let mut best_score = 0.0;
+        let mut exhausted = false;
 
-        // Sample every few pixels for performance
-        let step = if needle_width > 50 || needle_height > 50 { 2 } else { 1 };
+        // Large templates get a coarser first pass (1..8 px); the refinement
+        // below recovers sub-step accuracy around the winner.
+        let step = if coarse {
+            (needle_width.min(needle_height) / 16).clamp(1, 8)
+        } else if needle_width > 50 || needle_height > 50 {
+            2
+        } else {
+            1
+        };
 
-        for y in (0..search_height).step_by(step) {
-            for x in (0..search_width).step_by(step) {
+        'scan: for y in (0..search_height).step_by(step as usize) {
+            if let Some(deadline) = deadline {
+                if Instant::now() >= deadline {
+                    exhausted = true;
+                    break 'scan;
+                }
+            }
+            for x in (0..search_width).step_by(step as usize) {
                 let score = self.calculate_ncc_at(gray, sat, needle_cache, x, y);
                 if score > best_score {
                     best_score = score;
@@ -467,7 +842,8 @@ impl ImageMatcher {
             }
         }
 
-        // Refine search around best position
+        // Refine search around best position, even when the coarse budget ran
+        // out: the neighbourhood is tiny and prevents a half-pixel miss.
         if best_score > 0.5 {
             let refine_radius = step as i32;
             let start_x = (best_x as i32 - refine_radius).max(0) as u32;
@@ -490,7 +866,7 @@ impl ImageMatcher {
             }
         }
 
-        (best_x, best_y, best_score)
+        (best_x, best_y, best_score, exhausted)
     }
 
     /// Calculate Normalized Cross-Correlation at a specific position.
@@ -844,6 +1220,26 @@ impl CachedImageMatcher {
         self.cache.stats()
     }
     
+    /// Find an image inside a region with a bounded search and no cache.
+    ///
+    /// Region/budget are part of the semantics, so the plain cache key (image
+    /// hash only) would return stale hits for a different ROI. Callers that
+    /// need repeat speed should use `find_image_cached` with full-screen
+    /// captures instead.
+    pub fn find_image_bounded(
+        &mut self,
+        haystack: &DynamicImage,
+        needle: &DynamicImage,
+        region: Option<SearchRegion>,
+        budget: Duration,
+    ) -> MatchResult {
+        self.metrics.record_cache_miss();
+        let start = Instant::now();
+        let result = self.matcher.find_image_bounded(haystack, needle, region, budget);
+        self.metrics.record_match(start.elapsed());
+        result
+    }
+
     /// Find an image with caching
     ///
     /// This method first checks the cache for a recent match result.
@@ -856,7 +1252,7 @@ impl CachedImageMatcher {
     ) -> MatchResult {
         // Create cache key
         let key = CacheKey::new(image_id, needle, haystack);
-        
+
         // Check cache
         if let Some(cached_result) = self.cache.get(&key) {
             self.metrics.record_cache_hit();
@@ -2124,6 +2520,60 @@ mod tests {
     }
 
     #[test]
+    fn should_find_exact_match_without_roi_on_desktop_scale_image() {
+        // 回归：全屏搜索曾按步长 6 扫描，模板放在非整倍位置时永远采不到，
+        // 明明逐像素相同却只报 26%。桌面尺度（1200x900 以上）必须能命中。
+        let matcher = ImageMatcher::with_config(MatchConfig::with_threshold(0.9));
+
+        let (w, h) = (1200, 900);
+        let (nw, nh) = (120, 80);
+        let (origin_x, origin_y) = (701, 403);
+
+        let haystack_img = {
+            // 雪崩哈希图案：每个像素独立，避免夹具自身出现行/列别名
+            //（旧的 position_hash 在 y=403 / y=712 上几乎重合）。
+            let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(w, h);
+            for y in 0..h {
+                for x in 0..w {
+                    let mut v = x.wrapping_mul(2654435761) ^ y.wrapping_mul(40503);
+                    v ^= v >> 13;
+                    v = v.wrapping_mul(1274126177);
+                    v ^= v >> 16;
+                    let c = (v & 0xFF) as u8;
+                    img.put_pixel(x, y, Rgba([c, c.wrapping_add(37), c, 255]));
+                }
+            }
+            img
+        };
+        let mut needle_img = ImageBuffer::new(nw, nh);
+        for y in 0..nh {
+            for x in 0..nw {
+                let p = haystack_img.get_pixel(origin_x + x, origin_y + y);
+                needle_img.put_pixel(x, y, Rgba([p[0], p[1], p[2], p[3]]));
+            }
+        }
+
+        let haystack = DynamicImage::ImageRgba8(haystack_img);
+        let needle = DynamicImage::ImageRgba8(needle_img);
+
+        let result =
+            matcher.find_image_bounded(&haystack, &needle, None, Duration::from_millis(3000));
+
+        assert!(
+            result.found,
+            "exact template must be found without an ROI, confidence={:?}",
+            result.confidence
+        );
+        assert_eq!(result.center_x, Some(origin_x + nw / 2));
+        assert_eq!(result.center_y, Some(origin_y + nh / 2));
+        assert!(
+            result.confidence.unwrap_or(0.0) > 0.99,
+            "score should be ~1.0, got {:?}",
+            result.confidence
+        );
+    }
+
+    #[test]
     fn should_find_match_with_alpha_needle_in_opaque_haystack() {
         // Pasted PNGs may have alpha < 255 for some pixels.
         // Screen captures always have alpha = 255.
@@ -2380,5 +2830,55 @@ mod tests {
         // Both are uniform 128 → should still pass
         assert!(result.passed);
         assert_eq!(result.diff_percentage, 0.0);
+    }
+
+    fn patterned_image(width: u32, height: u32, seed: u32) -> DynamicImage {
+        let mut img = ImageBuffer::new(width, height);
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
+            *pixel = Rgba([
+                ((x * 13 + y * 7 + seed) % 256) as u8,
+                ((x * 3 + y * 17 + seed * 5) % 256) as u8,
+                ((x * 19 + y * 11 + seed * 3) % 256) as u8,
+                255,
+            ]);
+        }
+        DynamicImage::ImageRgba8(img)
+    }
+
+    #[test]
+    fn bounded_search_respects_roi_and_reports_full_image_coords() {
+        let haystack = patterned_image(200, 150, 7);
+        let needle = haystack.crop_imm(120, 60, 24, 18);
+        let matcher =
+            ImageMatcher::with_config(MatchConfig::with_threshold(0.9));
+        let result = matcher.find_image_bounded(
+            &haystack,
+            &needle,
+            Some(SearchRegion::new(100, 40, 80, 80)),
+            Duration::from_millis(3000),
+        );
+        assert!(result.found, "pattern should be found inside the ROI");
+        let cx = result.center_x.unwrap() as i32;
+        let cy = result.center_y.unwrap() as i32;
+        assert!((cx - 132).abs() <= 2, "center x was {cx}");
+        assert!((cy - 69).abs() <= 2, "center y was {cy}");
+    }
+
+    #[test]
+    fn bounded_search_misses_outside_roi() {
+        let haystack = patterned_image(200, 150, 11);
+        let needle = haystack.crop_imm(10, 10, 20, 16);
+        let matcher =
+            ImageMatcher::with_config(MatchConfig::with_threshold(0.95));
+        // Region far away from the real location; the search must not peek
+        // outside it and must return the best (low) score.
+        let result = matcher.find_image_bounded(
+            &haystack,
+            &needle,
+            Some(SearchRegion::new(150, 100, 50, 50)),
+            Duration::from_millis(3000),
+        );
+        assert!(!result.found);
+        assert!(result.confidence.unwrap_or(1.0) < 0.95);
     }
 }

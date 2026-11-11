@@ -700,7 +700,7 @@ describe('App execution uses saved flow state', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('validation-panel')).toBeInTheDocument();
-      expect(screen.getByText('🩺 流程问题清单')).toBeInTheDocument();
+      expect(screen.getByText('流程问题清单')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole('button', { name: /问题/ }));

@@ -156,13 +156,25 @@ type TauriBlockConfigPayload =
       type: 'click';
       mode:
         | { mode: 'coordinates'; x: number; y: number }
-        | { mode: 'image'; imageId?: string };
+        | { mode: 'image'; imageId?: string; threshold?: number; roi?: { x: number; y: number; width: number; height: number } }
+        | {
+            mode: 'uia';
+            window: string;
+            name?: string;
+            automationId?: string;
+            className?: string;
+            controlType?: string;
+            index?: number;
+            force?: boolean;
+          };
       count: number;
     }
   | {
       type: 'waitImage';
       imageId?: string;
       timeoutMs?: number;
+      threshold?: number;
+      roi?: { x: number; y: number; width: number; height: number };
     }
   | {
       type: 'waitTime';
@@ -252,7 +264,7 @@ function toTauriBlockConfig(config: BlockConfig): TauriBlockConfigPayload {
       return {
         type: 'click',
         mode: normalized.mode.mode === 'image'
-          ? { mode: 'image', imageId: normalized.mode.imageId }
+          ? { mode: 'image', imageId: normalized.mode.imageId, threshold: normalized.mode.threshold }
           : normalized.mode,
         count: normalized.count,
       };
@@ -261,6 +273,7 @@ function toTauriBlockConfig(config: BlockConfig): TauriBlockConfigPayload {
         type: 'waitImage',
         imageId: normalized.imageId,
         timeoutMs: normalized.timeoutMs,
+        threshold: normalized.threshold,
       };
     case 'wait_time':
       return {

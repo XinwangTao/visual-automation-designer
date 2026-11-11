@@ -32,7 +32,7 @@ pub struct ClickBlock {
 
 impl ClickBlock {
     /// Create a new click block with coordinates mode
-    pub fn new_coordinates(x: u32, y: u32, count: u32, position: BlockPosition) -> Self {
+    pub fn new_coordinates(x: i32, y: i32, count: u32, position: BlockPosition) -> Self {
         Self {
             id: BlockId::new(),
             position,
@@ -46,24 +46,24 @@ impl ClickBlock {
         Self {
             id: BlockId::new(),
             position,
-            mode: ClickMode::Image { image_id: Some(image_id) },
+            mode: ClickMode::Image { image_id: Some(image_id), threshold: None, roi: None, fallback_click: None, button: None },
             count: count.max(1),
         }
     }
 
     /// Get click coordinates (if in coordinates mode)
-    pub fn coordinates(&self) -> Option<(u32, u32)> {
+    pub fn coordinates(&self) -> Option<(i32, i32)> {
         match &self.mode {
             ClickMode::Coordinates { x, y } => Some((*x, *y)),
-            ClickMode::Image { .. } => None,
+            ClickMode::Image { .. } | ClickMode::Uia { .. } => None,
         }
     }
 
     /// Get image ID (if in image mode)
     pub fn image_id(&self) -> Option<&ImageId> {
         match &self.mode {
-            ClickMode::Image { image_id } => image_id.as_ref(),
-            ClickMode::Coordinates { .. } => None,
+            ClickMode::Image { image_id, .. } => image_id.as_ref(),
+            ClickMode::Coordinates { .. } | ClickMode::Uia { .. } => None,
         }
     }
 }
@@ -156,6 +156,7 @@ impl Block for WaitImageBlock {
             image_id: self.image_id.clone(),
             timeout_ms: self.timeout_ms,
             threshold: None,
+            roi: None,
         };
         validate_config(&config)
     }

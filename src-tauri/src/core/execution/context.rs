@@ -49,8 +49,9 @@ pub struct ExecutionContext {
     execution_log: Vec<ExecutionLogEntry>,
     /// Loop counters: block_id -> current iteration
     loop_counters: HashMap<BlockId, LoopCounter>,
-    /// Image match result cache: image_id -> (x, y) center position
-    image_match_cache: HashMap<ImageId, (u32, u32)>,
+    /// Image match result cache: image_id -> (x, y) center position in
+    /// virtual-screen physical pixels (signed).
+    image_match_cache: HashMap<ImageId, (i32, i32)>,
     /// Generic runtime variables for cross-block data passing
     variables: HashMap<String, String>,
     /// Total blocks executed
@@ -132,12 +133,12 @@ impl ExecutionContext {
     }
 
     /// Cache an image match result
-    pub fn cache_image_match(&mut self, image_id: ImageId, center: (u32, u32)) {
+    pub fn cache_image_match(&mut self, image_id: ImageId, center: (i32, i32)) {
         self.image_match_cache.insert(image_id, center);
     }
 
     /// Get cached image match result
-    pub fn get_cached_image_match(&self, image_id: &ImageId) -> Option<(u32, u32)> {
+    pub fn get_cached_image_match(&self, image_id: &ImageId) -> Option<(i32, i32)> {
         self.image_match_cache.get(image_id).copied()
     }
 

@@ -40,6 +40,41 @@ impl ExecutionStatus {
     }
 }
 
+/// Screen rectangle attached to a block event as evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HitRect {
+    /// Left edge in virtual-screen physical pixels.
+    pub x: i32,
+    /// Top edge in virtual-screen physical pixels.
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl HitRect {
+    pub fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
+        Self { x, y, width, height }
+    }
+}
+
+/// Per-block diagnostic evidence for headless debugging.
+///
+/// `None` fields mean the block did not perform a match (wait, input, loop...).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockEvidence {
+    /// Best NCC score seen (0.0~1.0), even when the match failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
+    /// Where the target was found, in virtual-screen physical pixels.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hit_rect: Option<HitRect>,
+    /// Human-readable target description (image name, UIA selector, coords).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
 /// Events emitted during flow execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -51,18 +86,32 @@ pub enum ExecutionEvent {
     /// A block started executing
     BlockStarted {
         block_id: BlockId,
+        #[serde(default)]
+        attempt: u32,
         timestamp: DateTime<Utc>,
     },
     /// A block completed execution
     BlockCompleted {
         block_id: BlockId,
         success: bool,
+        #[serde(default)]
+        elapsed_ms: u64,
+        #[serde(default)]
+        attempt: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        evidence: Option<BlockEvidence>,
         timestamp: DateTime<Utc>,
     },
     /// A block execution resulted in an error
     BlockError {
         block_id: BlockId,
         message: String,
+        #[serde(default)]
+        elapsed_ms: u64,
+        #[serde(default)]
+        attempt: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        evidence: Option<BlockEvidence>,
         timestamp: DateTime<Utc>,
     },
     /// Flow execution completed successfully
@@ -102,26 +151,60 @@ impl ExecutionEvent {
 
     /// Create a BlockStarted event
     pub fn block_started(block_id: BlockId) -> Self {
+        Self::block_started_with(block_id, 1)
+    }
+
+    /// Create a BlockStarted event with an explicit attempt number.
+    pub fn block_started_with(block_id: BlockId, attempt: u32) -> Self {
         ExecutionEvent::BlockStarted {
             block_id,
+            attempt,
             timestamp: Utc::now(),
         }
     }
 
     /// Create a BlockCompleted event
     pub fn block_completed(block_id: BlockId, success: bool) -> Self {
+        Self::block_completed_with(block_id, success, 0, 1, None)
+    }
+
+    /// Create a BlockCompleted event with timing, attempt and evidence.
+    pub fn block_completed_with(
+        block_id: BlockId,
+        success: bool,
+        elapsed_ms: u64,
+        attempt: u32,
+        evidence: Option<BlockEvidence>,
+    ) -> Self {
         ExecutionEvent::BlockCompleted {
             block_id,
             success,
+            elapsed_ms,
+            attempt,
+            evidence,
             timestamp: Utc::now(),
         }
     }
 
     /// Create a BlockError event
     pub fn block_error(block_id: BlockId, message: String) -> Self {
+        Self::block_error_with(block_id, message, 0, 1, None)
+    }
+
+    /// Create a BlockError event with timing, attempt and evidence.
+    pub fn block_error_with(
+        block_id: BlockId,
+        message: String,
+        elapsed_ms: u64,
+        attempt: u32,
+        evidence: Option<BlockEvidence>,
+    ) -> Self {
         ExecutionEvent::BlockError {
             block_id,
             message,
+            elapsed_ms,
+            attempt,
+            evidence,
             timestamp: Utc::now(),
         }
     }
